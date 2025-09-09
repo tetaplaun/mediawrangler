@@ -108,10 +108,36 @@ export default function Explorer() {
 
   const goUp = useCallback(async () => {
     if (currentPath === "::drives") return
-    const parsed = currentPath.replace(/\\+$/, "")
-    const sep = parsed.includes("\\") || /^[A-Za-z]:/.test(parsed) ? "\\" : "/"
-    const parent = parsed.includes(sep) ? parsed.slice(0, parsed.lastIndexOf(sep)) : "::drives"
-    await navigateTo(parent)
+    // Trim trailing separators
+    let parsed = currentPath.replace(/\\+$/, "").replace(/\/+$/, "")
+    const isWin = /^[A-Za-z]:/.test(parsed)
+
+    if (isWin) {
+      const drive = parsed.slice(0, 2) // e.g., "C:"
+      const idx = parsed.lastIndexOf("\\")
+      // At drive root or path like "C:" -> go to drives view
+      if (idx < 0 || parsed.length <= 2) {
+        await navigateTo("::drives")
+        return
+      }
+      // If the backslash is immediately after drive (e.g., C:\Folder -> idx === 2), go to drive root
+      if (idx === 2) {
+        await navigateTo(drive + "\\")
+        return
+      }
+      // Otherwise, go one level up
+      await navigateTo(parsed.slice(0, idx))
+      return
+    } else {
+      if (parsed === "/") {
+        await navigateTo("::drives")
+        return
+      }
+      const idx = parsed.lastIndexOf("/")
+      const parent = idx > 0 ? parsed.slice(0, idx) : "/"
+      await navigateTo(parent)
+      return
+    }
   }, [currentPath, navigateTo])
 
   const openEntry = useCallback(
@@ -307,7 +333,7 @@ export default function Explorer() {
             <div className="p-4 text-sm text-red-400">{error}</div>
           ) : viewMode === "icons" ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 p-1">
-              {filteredEntries.map((e) => (
+              {sortedEntries.map((e) => (
                 <button
                   key={e.path}
                   onDoubleClick={() => openEntry(e)}
