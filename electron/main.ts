@@ -165,14 +165,26 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
           : metadata.format.bit_rate
       }
 
-      // Format
+      // Format - clean up comma-separated list for MOV/MP4 family
       if (metadata.format?.format_name) {
-        mediaInfo.format = metadata.format.format_name
+        const formatName = metadata.format.format_name
+        
+        // Common MOV/MP4 family format string
+        if (formatName === 'mov,mp4,m4a,3gp,3g2,mj2') {
+          // Use the file extension as the format for cleaner display
+          const ext = path.extname(filePath).replace(/^\./, '').toUpperCase()
+          mediaInfo.format = ext || 'MP4'
+        } else if (formatName.includes(',')) {
+          // For other comma-separated formats, use the first one
+          mediaInfo.format = formatName.split(',')[0].toUpperCase()
+        } else {
+          mediaInfo.format = formatName.toUpperCase()
+        }
       }
 
       // Codec
       if (videoStream?.codec_name) {
-        mediaInfo.codec = videoStream.codec_name
+        mediaInfo.codec = videoStream.codec_name.toUpperCase()
       }
 
       // Encoded date
@@ -202,7 +214,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
     }
 
     if (dimensions.type) {
-      mediaInfo.format = dimensions.type
+      mediaInfo.format = dimensions.type.toUpperCase()
     }
 
     return mediaInfo

@@ -25,6 +25,38 @@ function formatDate(ms: number | null) {
   }
 }
 
+function formatEncodedDate(dateStr: string | undefined) {
+  if (!dateStr) return ""
+  try {
+    // Parse ISO date string and format it
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return ""
+    return date.toLocaleString()
+  } catch {
+    return ""
+  }
+}
+
+function areDatesDifferent(encodedDateStr: string | undefined, modifiedMs: number | null): boolean {
+  if (!encodedDateStr || !modifiedMs) return false
+  
+  try {
+    const encodedDate = new Date(encodedDateStr)
+    const modifiedDate = new Date(modifiedMs)
+    
+    if (isNaN(encodedDate.getTime()) || isNaN(modifiedDate.getTime())) return false
+    
+    // Compare dates at day level (ignore time within same day)
+    const encodedDay = new Date(encodedDate.getFullYear(), encodedDate.getMonth(), encodedDate.getDate())
+    const modifiedDay = new Date(modifiedDate.getFullYear(), modifiedDate.getMonth(), modifiedDate.getDate())
+    
+    // Return true if dates are different days
+    return encodedDay.getTime() !== modifiedDay.getTime()
+  } catch {
+    return false
+  }
+}
+
 function formatDuration(seconds: number | undefined) {
   if (!seconds) return ""
   const hours = Math.floor(seconds / 3600)
@@ -137,6 +169,9 @@ export function DetailsView() {
             <th className="w-20 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
               Codec
             </th>
+            <th className="w-36 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
+              Encoded Date
+            </th>
             <th className="w-36 border-b border-[#2b2b2b] p-0">
               <button
                 onClick={() => toggleSort("modifiedMs")}
@@ -200,7 +235,14 @@ export function DetailsView() {
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
                   {isLoading && couldHaveMediaInfo ? "..." : (e.mediaInfo?.codec || "")}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">{formatDate(e.modifiedMs)}</td>
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : formatEncodedDate(e.mediaInfo?.encodedDate)}
+                </td>
+                <td className={`border-b border-[#2b2b2b] px-2 py-1 ${
+                  areDatesDifferent(e.mediaInfo?.encodedDate, e.modifiedMs) ? "text-red-500" : ""
+                }`}>
+                  {formatDate(e.modifiedMs)}
+                </td>
               </tr>
             )
           })}
