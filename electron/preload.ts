@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     resetQuickLinks: () => ipcRenderer.invoke("fs:resetQuickLinks"),
     selectFolder: () => ipcRenderer.invoke("fs:selectFolder"),
     getMediaInfo: (filePath: string) => ipcRenderer.invoke("fs:getMediaInfo", filePath),
+    getMediaInfoBatch: (filePaths: string[]) => ipcRenderer.invoke("fs:getMediaInfoBatch", filePaths),
   },
 })

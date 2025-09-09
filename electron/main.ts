@@ -340,11 +340,8 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
     }
     const ext = !isDirectory ? path.extname(d.name).replace(/^\./, "").toLowerCase() : null
     
-    // Get media info for media files
-    let mediaInfo: MediaInfo | undefined
-    if (!isDirectory && isMediaFile(ext)) {
-      mediaInfo = await getMediaInfo(entryPath, ext)
-    }
+    // Don't fetch media info during initial load for performance
+    // Media info will be loaded asynchronously after directory listing
     
     return {
       name: d.name,
@@ -353,7 +350,7 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
       size: !isDirectory && stats ? stats.size : null,
       modifiedMs: stats ? stats.mtimeMs : null,
       ext,
-      mediaInfo,
+      mediaInfo: undefined, // Will be loaded asynchronously
     }
   })
 
@@ -474,6 +471,29 @@ ipcMain.handle("fs:getMediaInfo", async (_e: IpcMainInvokeEvent, filePath: strin
     const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
     const mediaInfo = await getMediaInfo(filePath, ext)
     return { ok: true, data: mediaInfo }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths: string[]) => {
+  try {
+    // Process media files with higher concurrency for better performance
+    const results = await mapLimit(filePaths, 50, async (filePath) => {
+      try {
+        const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
+        if (!isMediaFile(ext)) {
+          return { path: filePath, mediaInfo: undefined }
+        }
+        const mediaInfo = await getMediaInfo(filePath, ext)
+        return { path: filePath, mediaInfo }
+      } catch (err) {
+        console.error(`Error getting media info for ${filePath}:`, err)
+        return { path: filePath, mediaInfo: undefined }
+      }
+    })
+    
+    return { ok: true, data: results }
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }
   }

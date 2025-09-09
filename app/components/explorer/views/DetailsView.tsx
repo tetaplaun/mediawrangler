@@ -58,6 +58,7 @@ export function DetailsView() {
   const navigateTo = useExplorerStore((state) => state.navigateTo)
   const sort = useExplorerStore((state) => state.sort)
   const setSort = useExplorerStore((state) => state.setSort)
+  const mediaInfoLoading = useExplorerStore((state) => state.mediaInfoLoading)
 
   const openEntry = useCallback(
     async (e: Entry) => {
@@ -153,6 +154,7 @@ export function DetailsView() {
         <tbody>
           {entries.map((e) => {
             const isMedia = !!e.mediaInfo
+            const isLoading = mediaInfoLoading[e.path]
             const icon = e.type === "directory" || e.type === "drive" 
               ? "📁" 
               : isMedia && e.mediaInfo?.dimensions
@@ -161,6 +163,13 @@ export function DetailsView() {
               ? "🎬"
               : "📄"
               
+            // Check if this is a media file that could have info
+            const mediaExts = [
+              'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv',
+              'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'heic', 'heif'
+            ]
+            const couldHaveMediaInfo = e.type === "file" && e.ext && mediaExts.includes(e.ext.toLowerCase())
+            
             return (
               <tr
                 key={e.path}
@@ -173,23 +182,23 @@ export function DetailsView() {
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1">{e.type}</td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1">{formatBytes(e.size)}</td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {formatDimensions(e.mediaInfo?.dimensions)}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : formatDimensions(e.mediaInfo?.dimensions)}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {formatDuration(e.mediaInfo?.duration)}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : formatDuration(e.mediaInfo?.duration)}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {formatFrameRate(e.mediaInfo?.frameRate)}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : formatFrameRate(e.mediaInfo?.frameRate)}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {formatBitRate(e.mediaInfo?.bitRate)}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : formatBitRate(e.mediaInfo?.bitRate)}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {e.mediaInfo?.format || ""}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : (e.mediaInfo?.format || "")}
                 </td>
-                <td className="border-b border-[#2b2b2b] px-2 py-1">
-                  {e.mediaInfo?.codec || ""}
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
+                  {isLoading && couldHaveMediaInfo ? "..." : (e.mediaInfo?.codec || "")}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1">{formatDate(e.modifiedMs)}</td>
               </tr>

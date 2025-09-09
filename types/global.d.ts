@@ -39,6 +39,11 @@ declare global {
         resetQuickLinks: () => Promise<{ ok: boolean; error?: string }>
         selectFolder: () => Promise<{ ok: boolean; path: string | null }>
         getMediaInfo: (filePath: string) => Promise<{ ok: boolean; data?: any; error?: string }>
+        getMediaInfoBatch: (filePaths: string[]) => Promise<{ 
+          ok: boolean; 
+          data?: Array<{ path: string; mediaInfo?: any }>; 
+          error?: string 
+        }>
       }
     }
   }
