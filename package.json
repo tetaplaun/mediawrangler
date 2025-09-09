@@ -8,7 +8,7 @@
     "dev:next": "next dev -p 3000",
     "dev:electron": "npm run build:electron && wait-on tcp:3000 && cross-env NODE_ENV=development electron .",
     "build": "npm run build:web && npm run build:electron && npm run build:app",
-    "build:web": "next build && next export -o dist/renderer",
+    "build:web": "next build",
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:app": "electron-builder",
     "start": "cross-env NODE_ENV=production electron .",

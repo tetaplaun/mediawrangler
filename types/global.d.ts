@@ -5,8 +5,8 @@ declare global {
     electronAPI: {
       ping: () => Promise<string>
       fs: {
-        getDrives: () => Promise<Array<{ name: string; path: string; type: string }>>
-        getQuickLinks: () => Promise<Array<{ id: string; name: string; path: string; type: string; isCustom: boolean }>>
+        getDrives: () => Promise<Array<{ name: string; path: string; type: "drive" }>>
+        getQuickLinks: () => Promise<Array<{ id: string; name: string; path: string; type: "directory"; isCustom: boolean }>>
         listDir: (targetPath: string) => Promise<{
           path: string
           entries: Array<{

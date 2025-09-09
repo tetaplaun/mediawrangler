@@ -329,9 +329,10 @@ const useExplorerStore = create<ExplorerStore>()(
             try {
               const result = await fsService.getMediaInfoBatch(paths)
               if (result.ok && result.data) {
+                const mediaData = result.data
                 set((state) => {
                   // Update cache and entries
-                  result.data.forEach(({ path, mediaInfo }) => {
+                  mediaData.forEach(({ path, mediaInfo }) => {
                     if (mediaInfo) {
                       state.mediaInfoCache[path] = mediaInfo
                       
