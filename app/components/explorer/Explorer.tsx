@@ -209,6 +209,7 @@ export default function Explorer() {
               <button
                 className="w-full px-3 py-1.5 text-left hover:bg-[#2a2a2a]"
                 onClick={() => navigateTo(q.path)}
+                title={`${q.name} (${q.path})`}
               >
                 {q.name}
               </button>
@@ -224,6 +225,7 @@ export default function Explorer() {
               <button
                 className="w-full px-3 py-1.5 text-left hover:bg-[#2a2a2a]"
                 onClick={() => navigateTo(d.path)}
+                title={`Drive ${d.name} (${d.path})`}
               >
                 {d.name}
               </button>
@@ -240,6 +242,7 @@ export default function Explorer() {
             className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
             onClick={goBack}
             disabled={stackBack.length === 0}
+            title="Back"
           >
             ◀
           </button>
@@ -247,6 +250,7 @@ export default function Explorer() {
             className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
             onClick={goForward}
             disabled={stackForward.length === 0}
+            title="Forward"
           >
             ▶
           </button>
@@ -254,6 +258,7 @@ export default function Explorer() {
             className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
             onClick={goUp}
             disabled={!canGoUp}
+            title="Up"
           >
             ↑
           </button>
@@ -270,6 +275,7 @@ export default function Explorer() {
                 viewMode === "icons" ? "bg-[#2a2a2a]" : ""
               }`}
               onClick={() => setViewMode("icons")}
+              title="Large icons"
             >
               ☐
             </button>
@@ -278,6 +284,7 @@ export default function Explorer() {
                 viewMode === "details" ? "bg-[#2a2a2a]" : ""
               }`}
               onClick={() => setViewMode("details")}
+              title="Details"
             >
               ☰
             </button>
@@ -305,6 +312,7 @@ export default function Explorer() {
                   key={e.path}
                   onDoubleClick={() => openEntry(e)}
                   className="rounded p-2 text-left hover:bg-[#2a2a2a]"
+                  title={e.name}
                 >
                   <div className="mb-1 flex h-16 items-center justify-center rounded border border-[#3a3a3a] bg-[#252525]">
                     <span className="text-2xl">
@@ -325,6 +333,7 @@ export default function Explorer() {
                     <button
                       onClick={() => toggleSort("name")}
                       className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                      title={`Sort by name ${sort.key === "name" ? `(${sort.dir})` : ""}`}
                     >
                       <span>Name</span>
                       <span className="text-xs opacity-70">
@@ -336,6 +345,7 @@ export default function Explorer() {
                     <button
                       onClick={() => toggleSort("type")}
                       className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                      title={`Sort by type ${sort.key === "type" ? `(${sort.dir})` : ""}`}
                     >
                       <span>Type</span>
                       <span className="text-xs opacity-70">
@@ -347,6 +357,7 @@ export default function Explorer() {
                     <button
                       onClick={() => toggleSort("size")}
                       className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                      title={`Sort by size ${sort.key === "size" ? `(${sort.dir})` : ""}`}
                     >
                       <span>Size</span>
                       <span className="text-xs opacity-70">
@@ -358,6 +369,9 @@ export default function Explorer() {
                     <button
                       onClick={() => toggleSort("modifiedMs")}
                       className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                      title={`Sort by date modified ${
+                        sort.key === "modifiedMs" ? `(${sort.dir})` : ""
+                      }`}
                     >
                       <span>Date modified</span>
                       <span className="text-xs opacity-70">
