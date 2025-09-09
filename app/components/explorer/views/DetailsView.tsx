@@ -16,10 +16,23 @@ function formatBytes(size: number | null) {
   return `${s.toFixed(u === 0 ? 0 : 1)} ${units[u]}`
 }
 
+function formatDateToDDMMYYYY(date: Date): string {
+  const day = date.getDate().toString().padStart(2, '0')
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const year = date.getFullYear()
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  const seconds = date.getSeconds().toString().padStart(2, '0')
+  
+  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`
+}
+
 function formatDate(ms: number | null) {
   if (!ms) return ""
   try {
-    return new Date(ms).toLocaleString()
+    const date = new Date(ms)
+    if (isNaN(date.getTime())) return ""
+    return formatDateToDDMMYYYY(date)
   } catch {
     return ""
   }
@@ -31,7 +44,7 @@ function formatEncodedDate(dateStr: string | undefined) {
     // Parse ISO date string and format it
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) return ""
-    return date.toLocaleString()
+    return formatDateToDDMMYYYY(date)
   } catch {
     return ""
   }

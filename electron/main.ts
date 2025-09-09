@@ -155,7 +155,7 @@ async function getDateFromExifTool(filePath: string): Promise<string | null> {
     }
     return null
   } catch (err) {
-    console.error('ExifTool error:', err)
+    // Silently fail if ExifTool is not available or has an error
     return null
   }
 }
@@ -164,7 +164,6 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
   return new Promise((resolve) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
       if (err) {
-        console.error('Error getting video info:', err)
         resolve({})
         return
       }
@@ -258,18 +257,14 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
       mediaInfo.format = dimensions.type.toUpperCase()
     }
   } catch (err) {
-    console.error(`Error getting image dimensions for ${ext} file:`, err)
+    // Silently fail - dimensions not critical
   }
 
   // For HEIC files, try ExifTool first as it handles them properly
   if (isHEIC) {
-    console.log('Trying ExifTool for HEIC file:', filePath)
     const exifToolDate = await getDateFromExifTool(filePath)
     if (exifToolDate) {
       mediaInfo.encodedDate = exifToolDate
-      console.log('Date extracted via ExifTool for HEIC:', exifToolDate)
-    } else {
-      console.log('ExifTool could not extract date for HEIC')
     }
   }
   
@@ -299,31 +294,25 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
           } else {
             mediaInfo.encodedDate = String(dateField)
           }
-          console.log(`EXIF date found via exifr for ${ext}:`, dateField ? 'Yes' : 'No')
         }
       }
     } catch (err) {
-      console.error(`Error parsing EXIF with exifr for ${ext} file:`, err)
+      // Silently fail - exifr might not support all formats
     }
     
     // Fallback to ffprobe for HEIC files if still no date
     if (isHEIC && !mediaInfo.encodedDate) {
-      console.log('Trying ffprobe fallback for HEIC:', filePath)
       try {
         await new Promise<void>((resolve) => {
           ffmpeg.ffprobe(filePath, async (err, metadata) => {
             if (err) {
-              console.error('FFprobe fallback also failed for HEIC:', err)
               resolve()
               return
             }
-
-            console.log('FFprobe metadata available, checking for dates...')
             
             // Try to extract creation date from format tags
             if (metadata.format?.tags) {
               const tags = metadata.format.tags
-              console.log('Format tags found:', Object.keys(tags).join(', '))
               
               const dateField = tags.creation_time || 
                                tags['com.apple.quicktime.creationdate'] ||
@@ -335,7 +324,6 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
                 mediaInfo.encodedDate = typeof dateField === 'string' 
                   ? dateField 
                   : String(dateField)
-                console.log('Date found via ffprobe format tags for HEIC:', dateField)
               }
             }
             
@@ -343,7 +331,6 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
             if (!mediaInfo.encodedDate && metadata.streams) {
               for (const stream of metadata.streams) {
                 if (stream.tags) {
-                  console.log('Stream tags found:', Object.keys(stream.tags).join(', '))
                   const streamDate = stream.tags.creation_time || 
                                     stream.tags['com.apple.quicktime.creationdate'] ||
                                     stream.tags.creation_date
@@ -351,7 +338,6 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
                     mediaInfo.encodedDate = typeof streamDate === 'string' 
                       ? streamDate 
                       : String(streamDate)
-                    console.log('Date found via ffprobe stream tags for HEIC:', streamDate)
                     break
                   }
                 }
@@ -359,7 +345,6 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
             }
             
             if (!mediaInfo.encodedDate) {
-              console.log('No date found in ffprobe metadata for HEIC')
               
               // Ultimate fallback: use file creation time
               try {
@@ -368,10 +353,9 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
                 const fileDate = stats.birthtime || stats.mtime
                 if (fileDate) {
                   mediaInfo.encodedDate = fileDate.toISOString()
-                  console.log('Using file system date as fallback for HEIC:', fileDate)
                 }
               } catch (statErr) {
-                console.error('Could not get file stats for fallback:', statErr)
+                // Silently fail - file stats not available
               }
             }
             
@@ -379,7 +363,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
           })
         })
       } catch (ffprobeErr) {
-        console.error('FFprobe fallback error:', ffprobeErr)
+        // Silently fail - ffprobe not critical
       }
     }
   }
