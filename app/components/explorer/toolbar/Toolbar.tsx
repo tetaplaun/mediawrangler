@@ -1,7 +1,9 @@
 "use client"
 
-import { useRef } from "react"
+import { useRef, useMemo, useState, useEffect } from "react"
 import { useExplorer } from "../context/ExplorerContext"
+import { getParentPath } from "../utils/path"
+import { useDebounce } from "../hooks/useDebounce"
 
 export function Toolbar() {
   const {
@@ -17,6 +19,21 @@ export function Toolbar() {
     currentPath,
   } = useExplorer()
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const [addressValue, setAddressValue] = useState(currentPath)
+  const [searchValue, setSearchValue] = useState("")
+  const debouncedSearchValue = useDebounce(searchValue, 300)
+  
+  const canGoUp = useMemo(() => {
+    return getParentPath(currentPath) !== null
+  }, [currentPath])
+  
+  useEffect(() => {
+    setAddressValue(currentPath)
+  }, [currentPath])
+  
+  useEffect(() => {
+    setFilter(debouncedSearchValue)
+  }, [debouncedSearchValue, setFilter])
   return (
     <div className="flex items-center gap-1 border-b border-[#2b2b2b] bg-[#202020] px-2 py-1">
       <button
@@ -38,7 +55,7 @@ export function Toolbar() {
       <button
         className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
         onClick={goUp}
-        disabled={currentPath === "::drives"}
+        disabled={!canGoUp}
         title="Up"
       >
         ↑
@@ -46,14 +63,15 @@ export function Toolbar() {
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          const v = inputRef.current?.value?.trim()
+          const v = addressValue.trim()
           if (v) navigateTo(v)
         }}
         className="mx-2 flex min-w-0 flex-1"
       >
         <input
           ref={inputRef}
-          defaultValue={currentPath}
+          value={addressValue}
+          onChange={(e) => setAddressValue(e.target.value)}
           className="min-w-0 flex-1 rounded border border-[#3a3a3a] bg-[#1c1c1c] px-2 py-1 text-sm outline-none focus:border-[#4a4a4a]"
         />
       </form>
@@ -79,7 +97,8 @@ export function Toolbar() {
       </div>
       <div className="ml-2 flex items-center gap-2">
         <input
-          onChange={(e) => setFilter(e.target.value)}
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
           placeholder="Search"
           className="w-44 rounded border border-[#3a3a3a] bg-[#1c1c1c] px-2 py-1 text-sm outline-none focus:border-[#4a4a4a]"
         />

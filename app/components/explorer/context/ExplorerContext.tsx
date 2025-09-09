@@ -39,7 +39,8 @@ type ExplorerActions = {
   setSort: (s: SortState) => void
 }
 
-const ExplorerContext = createContext<(ExplorerState & ExplorerActions) | null>(null)
+const ExplorerStateContext = createContext<ExplorerState | null>(null)
+const ExplorerActionsContext = createContext<ExplorerActions | null>(null)
 
 export function ExplorerProvider({ children }: { children: React.ReactNode }) {
   const [currentPath, setCurrentPath] = useState<string>("::drives")
@@ -130,7 +131,7 @@ export function ExplorerProvider({ children }: { children: React.ReactNode }) {
 
   const sortedEntries = useMemo(() => sortEntries(filteredEntries, sort), [filteredEntries, sort])
 
-  const value = useMemo(
+  const stateValue = useMemo(
     () => ({
       currentPath,
       entries: sortedEntries,
@@ -143,14 +144,6 @@ export function ExplorerProvider({ children }: { children: React.ReactNode }) {
       sort,
       backStack,
       forwardStack,
-      navigateTo,
-      goBack,
-      goForward,
-      goUp,
-      refresh,
-      setViewMode,
-      setFilter,
-      setSort,
     }),
     [
       currentPath,
@@ -164,19 +157,46 @@ export function ExplorerProvider({ children }: { children: React.ReactNode }) {
       sort,
       backStack,
       forwardStack,
+    ]
+  )
+
+  const actionsValue = useMemo(
+    () => ({
       navigateTo,
       goBack,
       goForward,
       goUp,
       refresh,
-    ]
+      setViewMode,
+      setFilter,
+      setSort,
+    }),
+    [navigateTo, goBack, goForward, goUp, refresh]
   )
 
-  return <ExplorerContext.Provider value={value}>{children}</ExplorerContext.Provider>
+  return (
+    <ExplorerStateContext.Provider value={stateValue}>
+      <ExplorerActionsContext.Provider value={actionsValue}>
+        {children}
+      </ExplorerActionsContext.Provider>
+    </ExplorerStateContext.Provider>
+  )
+}
+
+export function useExplorerState() {
+  const ctx = useContext(ExplorerStateContext)
+  if (!ctx) throw new Error("useExplorerState must be used within ExplorerProvider")
+  return ctx
+}
+
+export function useExplorerActions() {
+  const ctx = useContext(ExplorerActionsContext)
+  if (!ctx) throw new Error("useExplorerActions must be used within ExplorerProvider")
+  return ctx
 }
 
 export function useExplorer() {
-  const ctx = useContext(ExplorerContext)
-  if (!ctx) throw new Error("useExplorer must be used within ExplorerProvider")
-  return ctx
+  const state = useExplorerState()
+  const actions = useExplorerActions()
+  return { ...state, ...actions }
 }

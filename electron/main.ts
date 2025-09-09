@@ -1,14 +1,42 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron")
-const path = require("path")
-const fs = require("fs")
+import { app, BrowserWindow, ipcMain, shell, IpcMainInvokeEvent } from "electron"
+import * as path from "path"
+import * as fs from "fs"
+import * as os from "os"
+import { execFile } from "child_process"
+
 const fsp = fs.promises
-const os = require("os")
-const { execFile } = require("child_process")
+
+interface Drive {
+  name: string
+  path: string
+  type: "drive"
+}
+
+interface QuickLink {
+  name: string
+  path: string
+  type: "directory"
+}
+
+interface Entry {
+  name: string
+  path: string
+  type: "file" | "directory" | "drive"
+  size: number | null
+  modifiedMs: number | null
+  ext: string | null
+}
+
+interface ListDirectoryResult {
+  path: string
+  entries: Entry[]
+  error?: string
+}
 
 /**
  * Create the main window
  */
-function createMainWindow() {
+function createMainWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -69,7 +97,7 @@ ipcMain.handle("app:ping", async () => {
 /**
  * Try to get drives via PowerShell for Windows. Returns null on failure.
  */
-function getDrivesViaPowerShell() {
+function getDrivesViaPowerShell(): Promise<Drive[] | null> {
   return new Promise((resolve) => {
     const psCmd = "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root"
     execFile(
@@ -99,7 +127,7 @@ function getDrivesViaPowerShell() {
  * Return available drive root paths on Windows (e.g., C:\\, D:\\)
  * Fallback: if not Windows, return only root '/'
  */
-async function getDrives() {
+async function getDrives(): Promise<Drive[]> {
   if (process.platform !== "win32") {
     return [{ name: "Root", path: "/", type: "drive" }]
   }
@@ -126,11 +154,11 @@ async function getDrives() {
     .map((r) => ({ name: r.drivePath.replace(/\\$/, ""), path: r.drivePath, type: "drive" }))
 }
 
-function getQuickLinks() {
+function getQuickLinks(): QuickLink[] {
   const home = os.homedir()
   const isWin = process.platform === "win32"
-  const join = (...parts) => path.join(...parts)
-  const quick = [
+  const join = (...parts: string[]) => path.join(...parts)
+  const quick: QuickLink[] = [
     { name: "Desktop", path: join(home, "Desktop"), type: "directory" },
     { name: "Documents", path: join(home, isWin ? "Documents" : "Documents"), type: "directory" },
     { name: "Downloads", path: join(home, "Downloads"), type: "directory" },
@@ -141,7 +169,7 @@ function getQuickLinks() {
   return quick
 }
 
-async function listDirectory(targetPath) {
+async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
   // Special pseudo-path for drives view
   if (targetPath === "::drives") {
     const drives = await getDrives()
@@ -167,17 +195,17 @@ async function listDirectory(targetPath) {
     resolved = os.homedir()
   }
 
-  let dirents
+  let dirents: fs.Dirent[]
   try {
     dirents = await fsp.readdir(resolved, { withFileTypes: true })
-  } catch (e) {
+  } catch (e: any) {
     return { path: resolved, entries: [], error: e?.message || String(e) }
   }
 
   const entries = await mapLimit(dirents, 24, async (d) => {
     const entryPath = path.join(resolved, d.name)
     const isDirectory = d.isDirectory()
-    let stats = null
+    let stats: fs.Stats | null = null
     if (!isDirectory) {
       try {
         stats = await fsp.stat(entryPath)
@@ -187,7 +215,7 @@ async function listDirectory(targetPath) {
     return {
       name: d.name,
       path: entryPath,
-      type: isDirectory ? "directory" : "file",
+      type: isDirectory ? "directory" as const : "file" as const,
       size: !isDirectory && stats ? stats.size : null,
       modifiedMs: stats ? stats.mtimeMs : null,
       ext,
@@ -211,7 +239,7 @@ ipcMain.handle("fs:getQuickLinks", async () => {
   return getQuickLinks()
 })
 
-ipcMain.handle("fs:listDir", async (_e, targetPath) => {
+ipcMain.handle("fs:listDir", async (_e: IpcMainInvokeEvent, targetPath: string) => {
   return await listDirectory(targetPath)
 })
 
@@ -219,25 +247,29 @@ ipcMain.handle("fs:homeDir", async () => {
   return os.homedir()
 })
 
-ipcMain.handle("fs:joinPath", async (_e, base, name) => {
+ipcMain.handle("fs:joinPath", async (_e: IpcMainInvokeEvent, base: string, name: string) => {
   if (!base || base === "::drives") return name
   return path.join(base, name)
 })
 
-ipcMain.handle("fs:openPath", async (_e, targetPath) => {
+ipcMain.handle("fs:openPath", async (_e: IpcMainInvokeEvent, targetPath: string) => {
   if (!targetPath) return { ok: false, error: "No path" }
   try {
     const result = await shell.openPath(targetPath)
     if (result) return { ok: false, error: result }
     return { ok: true }
-  } catch (e) {
+  } catch (e: any) {
     return { ok: false, error: e?.message || String(e) }
   }
 })
 
 // Simple concurrency limiter
-async function mapLimit(items, limit, mapper) {
-  const results = new Array(items.length)
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
   let index = 0
   const workers = new Array(Math.max(1, limit)).fill(0).map(async () => {
     while (true) {

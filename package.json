@@ -2,21 +2,26 @@
   "name": "mediawrangler",
   "version": "0.1.0",
   "private": true,
-  "main": "electron/main.js",
+  "main": "dist/electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n NEXT,ELECTRON -c magenta,cyan \"npm:dev:next\" \"npm:dev:electron\"",
     "dev:next": "next dev -p 3000",
-    "dev:electron": "wait-on tcp:3000 && cross-env NODE_ENV=development electron .",
-    "build": "npm run build:web && npm run build:app",
+    "dev:electron": "npm run build:electron && wait-on tcp:3000 && cross-env NODE_ENV=development electron .",
+    "build": "npm run build:web && npm run build:electron && npm run build:app",
     "build:web": "next build && next export -o dist/renderer",
+    "build:electron": "tsc -p electron/tsconfig.json",
     "build:app": "electron-builder",
     "start": "cross-env NODE_ENV=production electron .",
-    "clean": "rimraf .next dist release"
+    "clean": "rimraf .next dist release",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\""
   },
   "build": {
     "appId": "com.mediawrangler.app",
     "files": [
-      "electron/**",
+      "dist/electron/**",
       "dist/renderer/**",
       "package.json"
     ],
@@ -45,7 +50,7 @@
       "category": "Utility"
     },
     "extraMetadata": {
-      "main": "electron/main.js"
+      "main": "dist/electron/main.js"
     }
   },
   "dependencies": {
@@ -54,15 +59,24 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/node": "^24.3.1",
     "@types/react": "19.1.12",
+    "@typescript-eslint/eslint-plugin": "^8.43.0",
+    "@typescript-eslint/parser": "^8.43.0",
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^30.0.9",
     "electron-builder": "^24.13.3",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "postcss": "^8.4.38",
+    "prettier": "^3.6.2",
     "rimraf": "^5.0.5",
     "tailwindcss": "^3.4.10",
+    "typescript": "^5.9.2",
     "wait-on": "^7.2.0"
   }
 }
