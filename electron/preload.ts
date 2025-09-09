@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     setShowDefaultQuickLinks: (show: boolean) => ipcRenderer.invoke("fs:setShowDefaultQuickLinks", show),
     resetQuickLinks: () => ipcRenderer.invoke("fs:resetQuickLinks"),
     selectFolder: () => ipcRenderer.invoke("fs:selectFolder"),
+    getMediaInfo: (filePath: string) => ipcRenderer.invoke("fs:getMediaInfo", filePath),
   },
 })

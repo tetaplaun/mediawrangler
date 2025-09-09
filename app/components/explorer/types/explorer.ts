@@ -1,3 +1,13 @@
+export type MediaInfo = {
+  dimensions?: { width: number; height: number }
+  frameRate?: number
+  encodedDate?: string
+  duration?: number // in seconds
+  bitRate?: number // in bps
+  format?: string
+  codec?: string
+}
+
 export type Entry = {
   name: string
   path: string
@@ -5,6 +15,7 @@ export type Entry = {
   size: number | null
   modifiedMs: number | null
   ext: string | null
+  mediaInfo?: MediaInfo
 }
 
 export type ViewMode = "icons" | "details"

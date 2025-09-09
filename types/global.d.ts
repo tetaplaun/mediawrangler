@@ -16,6 +16,15 @@ declare global {
             size: number | null
             modifiedMs: number | null
             ext: string | null
+            mediaInfo?: {
+              dimensions?: { width: number; height: number }
+              frameRate?: number
+              encodedDate?: string
+              duration?: number
+              bitRate?: number
+              format?: string
+              codec?: string
+            }
           }>
           error?: string
         }>
@@ -29,6 +38,7 @@ declare global {
         setShowDefaultQuickLinks: (show: boolean) => Promise<{ ok: boolean; error?: string }>
         resetQuickLinks: () => Promise<{ ok: boolean; error?: string }>
         selectFolder: () => Promise<{ ok: boolean; path: string | null }>
+        getMediaInfo: (filePath: string) => Promise<{ ok: boolean; data?: any; error?: string }>
       }
     }
   }

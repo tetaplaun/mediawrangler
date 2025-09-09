@@ -1,4 +1,4 @@
-import type { Drive, ListDirResult, QuickLink } from "../types/explorer"
+import type { Drive, ListDirResult, QuickLink, MediaInfo } from "../types/explorer"
 
 export const fsService = {
   getDrives(): Promise<Drive[]> {
@@ -39,5 +39,8 @@ export const fsService = {
   },
   selectFolder(): Promise<{ ok: boolean; path: string | null }> {
     return window.electronAPI.fs.selectFolder()
+  },
+  getMediaInfo(filePath: string): Promise<{ ok: boolean; data?: MediaInfo; error?: string }> {
+    return window.electronAPI.fs.getMediaInfo(filePath)
   },
 }

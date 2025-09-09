@@ -4,6 +4,12 @@ import * as fs from "fs"
 import * as os from "os"
 import { execFile } from "child_process"
 import { quickLinksStore, type StoredQuickLink } from "./quickLinksStore"
+import * as ffmpeg from "fluent-ffmpeg"
+import * as ffmpegInstaller from "@ffmpeg-installer/ffmpeg"
+import sizeOf from "image-size"
+
+// Set ffmpeg path
+ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const fsp = fs.promises
 
@@ -15,6 +21,16 @@ interface Drive {
 
 type QuickLink = StoredQuickLink
 
+interface MediaInfo {
+  dimensions?: { width: number; height: number }
+  frameRate?: number
+  encodedDate?: string
+  duration?: number // in seconds
+  bitRate?: number // in bps
+  format?: string
+  codec?: string
+}
+
 interface Entry {
   name: string
   path: string
@@ -22,6 +38,7 @@ interface Entry {
   size: number | null
   modifiedMs: number | null
   ext: string | null
+  mediaInfo?: MediaInfo
 }
 
 interface ListDirectoryResult {
@@ -88,6 +105,130 @@ app.on("window-all-closed", () => {
 ipcMain.handle("app:ping", async () => {
   return "pong"
 })
+
+// ------ Media Info Functions ------
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv'])
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'heic', 'heif'])
+
+function isVideoFile(ext: string | null): boolean {
+  return ext ? VIDEO_EXTENSIONS.has(ext.toLowerCase()) : false
+}
+
+function isImageFile(ext: string | null): boolean {
+  return ext ? IMAGE_EXTENSIONS.has(ext.toLowerCase()) : false
+}
+
+function isMediaFile(ext: string | null): boolean {
+  return isVideoFile(ext) || isImageFile(ext)
+}
+
+async function getVideoInfo(filePath: string): Promise<MediaInfo> {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        console.error('Error getting video info:', err)
+        resolve({})
+        return
+      }
+
+      const videoStream = metadata.streams?.find(s => s.codec_type === 'video')
+      const mediaInfo: MediaInfo = {}
+
+      // Dimensions
+      if (videoStream?.width && videoStream?.height) {
+        mediaInfo.dimensions = {
+          width: videoStream.width,
+          height: videoStream.height
+        }
+      }
+
+      // Frame rate
+      if (videoStream?.r_frame_rate) {
+        const [num, den] = videoStream.r_frame_rate.split('/').map(Number)
+        if (num && den) {
+          mediaInfo.frameRate = Math.round((num / den) * 100) / 100
+        }
+      }
+
+      // Duration
+      if (metadata.format?.duration) {
+        mediaInfo.duration = typeof metadata.format.duration === 'string' 
+          ? parseFloat(metadata.format.duration)
+          : metadata.format.duration
+      }
+
+      // Bit rate
+      if (metadata.format?.bit_rate) {
+        mediaInfo.bitRate = typeof metadata.format.bit_rate === 'string'
+          ? parseInt(metadata.format.bit_rate)
+          : metadata.format.bit_rate
+      }
+
+      // Format
+      if (metadata.format?.format_name) {
+        mediaInfo.format = metadata.format.format_name
+      }
+
+      // Codec
+      if (videoStream?.codec_name) {
+        mediaInfo.codec = videoStream.codec_name
+      }
+
+      // Encoded date
+      if (metadata.format?.tags?.creation_time) {
+        const creationTime = metadata.format.tags.creation_time
+        mediaInfo.encodedDate = typeof creationTime === 'string' 
+          ? creationTime 
+          : String(creationTime)
+      }
+
+      resolve(mediaInfo)
+    })
+  })
+}
+
+async function getImageInfo(filePath: string): Promise<MediaInfo> {
+  try {
+    const buffer = await fsp.readFile(filePath)
+    const dimensions = sizeOf(buffer)
+    const mediaInfo: MediaInfo = {}
+
+    if (dimensions.width && dimensions.height) {
+      mediaInfo.dimensions = {
+        width: dimensions.width,
+        height: dimensions.height
+      }
+    }
+
+    if (dimensions.type) {
+      mediaInfo.format = dimensions.type
+    }
+
+    return mediaInfo
+  } catch (err) {
+    console.error('Error getting image info:', err)
+    return {}
+  }
+}
+
+async function getMediaInfo(filePath: string, ext: string | null): Promise<MediaInfo | undefined> {
+  if (!isMediaFile(ext)) {
+    return undefined
+  }
+
+  try {
+    if (isVideoFile(ext)) {
+      return await getVideoInfo(filePath)
+    } else if (isImageFile(ext)) {
+      return await getImageInfo(filePath)
+    }
+  } catch (err) {
+    console.error('Error getting media info:', err)
+  }
+
+  return undefined
+}
 
 // ------ Filesystem IPC ------
 
@@ -198,6 +339,13 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
       } catch (_) {}
     }
     const ext = !isDirectory ? path.extname(d.name).replace(/^\./, "").toLowerCase() : null
+    
+    // Get media info for media files
+    let mediaInfo: MediaInfo | undefined
+    if (!isDirectory && isMediaFile(ext)) {
+      mediaInfo = await getMediaInfo(entryPath, ext)
+    }
+    
     return {
       name: d.name,
       path: entryPath,
@@ -205,6 +353,7 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
       size: !isDirectory && stats ? stats.size : null,
       modifiedMs: stats ? stats.mtimeMs : null,
       ext,
+      mediaInfo,
     }
   })
 
@@ -318,6 +467,16 @@ ipcMain.handle("fs:selectFolder", async () => {
   }
   
   return { ok: true, path: result.filePaths[0] }
+})
+
+ipcMain.handle("fs:getMediaInfo", async (_e: IpcMainInvokeEvent, filePath: string) => {
+  try {
+    const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
+    const mediaInfo = await getMediaInfo(filePath, ext)
+    return { ok: true, data: mediaInfo }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
 })
 
 // Simple concurrency limiter
