@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ffprobe:*)"
+      "Bash(ffprobe:*)",
+      "Read(//d/MediaProjects/2025-09-01 Dänemark/2025-08-23/IMAGE/**)",
+      "Bash(powershell:*)",
+      "WebSearch",
+      "Bash(exiftool:*)"
     ],
     "deny": [],
     "ask": []

@@ -2,16 +2,19 @@ import { app, BrowserWindow, ipcMain, shell, dialog, IpcMainInvokeEvent } from "
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
-import { execFile } from "child_process"
+import { execFile, exec } from "child_process"
+import { promisify } from "util"
 import { quickLinksStore, type StoredQuickLink } from "./quickLinksStore"
 import * as ffmpeg from "fluent-ffmpeg"
 import * as ffmpegInstaller from "@ffmpeg-installer/ffmpeg"
 import sizeOf from "image-size"
+import exifr from "exifr"
 
 // Set ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 
 const fsp = fs.promises
+const execAsync = promisify(exec)
 
 interface Drive {
   name: string
@@ -123,6 +126,40 @@ function isMediaFile(ext: string | null): boolean {
   return isVideoFile(ext) || isImageFile(ext)
 }
 
+async function getDateFromExifTool(filePath: string): Promise<string | null> {
+  try {
+    // Use exiftool to extract date fields - it handles HEIC files properly
+    const { stdout } = await execAsync(`exiftool -DateTimeOriginal -CreateDate -ModifyDate -CreationDate -MediaCreateDate -json "${filePath}"`)
+    
+    const data = JSON.parse(stdout)
+    if (data && data[0]) {
+      const exif = data[0]
+      
+      // Try various date fields in order of preference
+      const dateStr = exif.DateTimeOriginal || 
+                      exif.CreateDate || 
+                      exif.MediaCreateDate ||
+                      exif.CreationDate ||
+                      exif.ModifyDate
+      
+      if (dateStr) {
+        // ExifTool returns dates in format like "2024:08:23 14:30:45"
+        // Convert to ISO format
+        const match = dateStr.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/)
+        if (match) {
+          const [_, year, month, day, hour, minute, second] = match
+          return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`).toISOString()
+        }
+        return dateStr
+      }
+    }
+    return null
+  } catch (err) {
+    console.error('ExifTool error:', err)
+    return null
+  }
+}
+
 async function getVideoInfo(filePath: string): Promise<MediaInfo> {
   return new Promise((resolve) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
@@ -201,10 +238,14 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
 }
 
 async function getImageInfo(filePath: string): Promise<MediaInfo> {
+  const mediaInfo: MediaInfo = {}
+  const ext = path.extname(filePath).toLowerCase()
+  const isHEIC = ext === '.heic' || ext === '.heif'
+  
+  // Get dimensions and format using image-size (faster)
   try {
     const buffer = await fsp.readFile(filePath)
     const dimensions = sizeOf(buffer)
-    const mediaInfo: MediaInfo = {}
 
     if (dimensions.width && dimensions.height) {
       mediaInfo.dimensions = {
@@ -216,12 +257,134 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
     if (dimensions.type) {
       mediaInfo.format = dimensions.type.toUpperCase()
     }
-
-    return mediaInfo
   } catch (err) {
-    console.error('Error getting image info:', err)
-    return {}
+    console.error(`Error getting image dimensions for ${ext} file:`, err)
   }
+
+  // For HEIC files, try ExifTool first as it handles them properly
+  if (isHEIC) {
+    console.log('Trying ExifTool for HEIC file:', filePath)
+    const exifToolDate = await getDateFromExifTool(filePath)
+    if (exifToolDate) {
+      mediaInfo.encodedDate = exifToolDate
+      console.log('Date extracted via ExifTool for HEIC:', exifToolDate)
+    } else {
+      console.log('ExifTool could not extract date for HEIC')
+    }
+  }
+  
+  // If not HEIC or ExifTool failed, try exifr
+  if (!mediaInfo.encodedDate) {
+    try {
+      const exifOptions = {
+        pick: ['DateTimeOriginal', 'CreateDate', 'DateTime', 'ModifyDate', 'DateCreated', 
+               'DateTimeDigitized', 'SubSecTimeOriginal', 'SubSecTime']
+      }
+      
+      const exifData = await exifr.parse(filePath, exifOptions)
+      
+      if (exifData) {
+        // Try various date fields that might exist in EXIF
+        const dateField = exifData.DateTimeOriginal || 
+                         exifData.CreateDate || 
+                         exifData.DateTimeDigitized ||
+                         exifData.DateTime ||
+                         exifData.ModifyDate ||
+                         exifData.DateCreated
+        
+        if (dateField) {
+          // Convert Date object or string to ISO string
+          if (dateField instanceof Date) {
+            mediaInfo.encodedDate = dateField.toISOString()
+          } else {
+            mediaInfo.encodedDate = String(dateField)
+          }
+          console.log(`EXIF date found via exifr for ${ext}:`, dateField ? 'Yes' : 'No')
+        }
+      }
+    } catch (err) {
+      console.error(`Error parsing EXIF with exifr for ${ext} file:`, err)
+    }
+    
+    // Fallback to ffprobe for HEIC files if still no date
+    if (isHEIC && !mediaInfo.encodedDate) {
+      console.log('Trying ffprobe fallback for HEIC:', filePath)
+      try {
+        await new Promise<void>((resolve) => {
+          ffmpeg.ffprobe(filePath, async (err, metadata) => {
+            if (err) {
+              console.error('FFprobe fallback also failed for HEIC:', err)
+              resolve()
+              return
+            }
+
+            console.log('FFprobe metadata available, checking for dates...')
+            
+            // Try to extract creation date from format tags
+            if (metadata.format?.tags) {
+              const tags = metadata.format.tags
+              console.log('Format tags found:', Object.keys(tags).join(', '))
+              
+              const dateField = tags.creation_time || 
+                               tags['com.apple.quicktime.creationdate'] ||
+                               tags['com.apple.quicktime.creation_date'] ||
+                               tags.creation_date ||
+                               tags.date
+              
+              if (dateField) {
+                mediaInfo.encodedDate = typeof dateField === 'string' 
+                  ? dateField 
+                  : String(dateField)
+                console.log('Date found via ffprobe format tags for HEIC:', dateField)
+              }
+            }
+            
+            // Also check stream tags
+            if (!mediaInfo.encodedDate && metadata.streams) {
+              for (const stream of metadata.streams) {
+                if (stream.tags) {
+                  console.log('Stream tags found:', Object.keys(stream.tags).join(', '))
+                  const streamDate = stream.tags.creation_time || 
+                                    stream.tags['com.apple.quicktime.creationdate'] ||
+                                    stream.tags.creation_date
+                  if (streamDate) {
+                    mediaInfo.encodedDate = typeof streamDate === 'string' 
+                      ? streamDate 
+                      : String(streamDate)
+                    console.log('Date found via ffprobe stream tags for HEIC:', streamDate)
+                    break
+                  }
+                }
+              }
+            }
+            
+            if (!mediaInfo.encodedDate) {
+              console.log('No date found in ffprobe metadata for HEIC')
+              
+              // Ultimate fallback: use file creation time
+              try {
+                const stats = await fsp.stat(filePath)
+                // Use birthtime (creation time) if available, otherwise mtime
+                const fileDate = stats.birthtime || stats.mtime
+                if (fileDate) {
+                  mediaInfo.encodedDate = fileDate.toISOString()
+                  console.log('Using file system date as fallback for HEIC:', fileDate)
+                }
+              } catch (statErr) {
+                console.error('Could not get file stats for fallback:', statErr)
+              }
+            }
+            
+            resolve()
+          })
+        })
+      } catch (ffprobeErr) {
+        console.error('FFprobe fallback error:', ffprobeErr)
+      }
+    }
+  }
+
+  return mediaInfo
 }
 
 async function getMediaInfo(filePath: string, ext: string | null): Promise<MediaInfo | undefined> {
