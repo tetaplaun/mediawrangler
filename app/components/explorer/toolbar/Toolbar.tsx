@@ -1,45 +1,52 @@
 "use client"
 
-import { useRef, useMemo, useState, useEffect } from "react"
-import { useExplorer } from "../context/ExplorerContext"
+import { useRef, useState, useEffect } from "react"
 import { getParentPath } from "../utils/path"
 import { useDebounce } from "../hooks/useDebounce"
+import useExplorerStore, {
+  useGoBack,
+  useGoForward,
+  useGoUp,
+  useNavigateTo,
+  useCanGoBack,
+  useCanGoForward,
+  useCanGoUp,
+  useCurrentPath,
+  useViewMode,
+} from "../store/explorerStore"
 
 export function Toolbar() {
-  const {
-    goBack,
-    goForward,
-    goUp,
-    backStack,
-    forwardStack,
-    setViewMode,
-    viewMode,
-    setFilter,
-    navigateTo,
-    currentPath,
-  } = useExplorer()
+  const currentPath = useCurrentPath()
+  const viewMode = useViewMode()
+  const goBack = useGoBack()
+  const goForward = useGoForward()
+  const goUp = useGoUp()
+  const navigateTo = useNavigateTo()
+  const canGoBack = useCanGoBack()
+  const canGoForward = useCanGoForward()
+  const canGoUp = useCanGoUp()
+  const setViewMode = useExplorerStore((state) => state.setViewMode)
+  const setFilter = useExplorerStore((state) => state.setFilter)
+
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [addressValue, setAddressValue] = useState(currentPath)
   const [searchValue, setSearchValue] = useState("")
   const debouncedSearchValue = useDebounce(searchValue, 300)
-  
-  const canGoUp = useMemo(() => {
-    return getParentPath(currentPath) !== null
-  }, [currentPath])
-  
+
   useEffect(() => {
     setAddressValue(currentPath)
   }, [currentPath])
-  
+
   useEffect(() => {
     setFilter(debouncedSearchValue)
   }, [debouncedSearchValue, setFilter])
+
   return (
     <div className="flex items-center gap-1 border-b border-[#2b2b2b] bg-[#202020] px-2 py-1">
       <button
         className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
         onClick={goBack}
-        disabled={backStack.length === 0}
+        disabled={!canGoBack}
         title="Back"
       >
         ◀
@@ -47,7 +54,7 @@ export function Toolbar() {
       <button
         className="rounded px-2 py-1 text-sm hover:bg-[#2a2a2a] disabled:opacity-40"
         onClick={goForward}
-        disabled={forwardStack.length === 0}
+        disabled={!canGoForward}
         title="Forward"
       >
         ▶

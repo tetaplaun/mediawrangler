@@ -215,7 +215,7 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
     return {
       name: d.name,
       path: entryPath,
-      type: isDirectory ? "directory" as const : "file" as const,
+      type: isDirectory ? ("directory" as const) : ("file" as const),
       size: !isDirectory && stats ? stats.size : null,
       modifiedMs: stats ? stats.mtimeMs : null,
       ext,

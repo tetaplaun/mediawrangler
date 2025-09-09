@@ -1,9 +1,12 @@
 "use client"
 
-import { useExplorer } from "../context/ExplorerContext"
+import useExplorerStore, { useQuickLinks, useDrives } from "../store/explorerStore"
 
 export function Sidebar() {
-  const { quickLinks, drives, navigateTo } = useExplorer()
+  const quickLinks = useQuickLinks()
+  const drives = useDrives()
+  const navigateTo = useExplorerStore((state) => state.navigateTo)
+
   return (
     <div className="w-60 shrink-0 overflow-y-auto border-r border-[#2b2b2b] bg-[#202020]">
       <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">

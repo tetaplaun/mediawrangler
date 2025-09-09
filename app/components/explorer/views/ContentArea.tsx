@@ -1,11 +1,14 @@
 "use client"
 
-import { useExplorer } from "../context/ExplorerContext"
+import useExplorerStore, { useViewMode } from "../store/explorerStore"
 import { IconsView } from "./IconsView"
 import { DetailsView } from "./DetailsView"
 
 export function ContentArea() {
-  const { loading, error, viewMode } = useExplorer()
+  const loading = useExplorerStore((state) => state.loading)
+  const error = useExplorerStore((state) => state.error)
+  const viewMode = useViewMode()
+
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e]">
       {loading ? (

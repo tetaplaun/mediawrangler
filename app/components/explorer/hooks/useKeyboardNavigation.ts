@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react"
-import { useExplorerActions } from "../context/ExplorerContext"
+import { useEffect } from "react"
+import { useGoBack, useGoForward, useGoUp } from "../store/explorerStore"
 
 export function useKeyboardNavigation() {
-  const { goBack, goForward, goUp } = useExplorerActions()
-  const addressInputRef = useRef<HTMLInputElement | null>(null)
+  const goBack = useGoBack()
+  const goForward = useGoForward()
+  const goUp = useGoUp()
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -45,6 +46,4 @@ export function useKeyboardNavigation() {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [goBack, goForward, goUp])
-
-  return { addressInputRef }
 }

@@ -1,16 +1,52 @@
 "use client"
 
-import { useExplorer } from "../context/ExplorerContext"
-import { formatBytes, formatDate } from "../utils/format"
+import { useCallback } from "react"
+import useExplorerStore, { useSortedEntries } from "../store/explorerStore"
+import type { Entry } from "../types/explorer"
+
+function formatBytes(size: number | null) {
+  if (size == null) return ""
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let s = size
+  let u = 0
+  while (s >= 1024 && u < units.length - 1) {
+    s /= 1024
+    u++
+  }
+  return `${s.toFixed(u === 0 ? 0 : 1)} ${units[u]}`
+}
+
+function formatDate(ms: number | null) {
+  if (!ms) return ""
+  try {
+    return new Date(ms).toLocaleString()
+  } catch {
+    return ""
+  }
+}
 
 export function DetailsView() {
-  const { entries, viewMode, sort, setSort, navigateTo } = useExplorer()
-  if (viewMode !== "details") return null
+  const entries = useSortedEntries()
+  const navigateTo = useExplorerStore((state) => state.navigateTo)
+  const sort = useExplorerStore((state) => state.sort)
+  const setSort = useExplorerStore((state) => state.setSort)
 
-  const toggleSort = (key: typeof sort.key) => {
-    setSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
-    )
+  const openEntry = useCallback(
+    async (e: Entry) => {
+      if (e.type === "directory" || e.type === "drive") {
+        await navigateTo(e.path)
+        return
+      }
+      await window.electronAPI.fs.openPath(e.path)
+    },
+    [navigateTo]
+  )
+
+  const toggleSort = (key: "name" | "type" | "size" | "modifiedMs") => {
+    setSort({
+      key,
+      dir: sort.key === key && sort.dir === "asc" ? "desc" : "asc",
+    })
   }
 
   return (
@@ -72,7 +108,7 @@ export function DetailsView() {
           <tr
             key={e.path}
             className="cursor-default hover:bg-[#2a2a2a]"
-            onDoubleClick={() => navigateTo(e.path)}
+            onDoubleClick={() => openEntry(e)}
           >
             <td className="truncate border-b border-[#2b2b2b] px-2 py-1">
               <span className="mr-2">
