@@ -28,6 +28,7 @@ declare global {
         reorderQuickLinks: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>
         setShowDefaultQuickLinks: (show: boolean) => Promise<{ ok: boolean; error?: string }>
         resetQuickLinks: () => Promise<{ ok: boolean; error?: string }>
+        selectFolder: () => Promise<{ ok: boolean; path: string | null }>
       }
     }
   }

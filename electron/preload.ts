@@ -15,5 +15,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reorderQuickLinks: (orderedIds: string[]) => ipcRenderer.invoke("fs:reorderQuickLinks", orderedIds),
     setShowDefaultQuickLinks: (show: boolean) => ipcRenderer.invoke("fs:setShowDefaultQuickLinks", show),
     resetQuickLinks: () => ipcRenderer.invoke("fs:resetQuickLinks"),
+    selectFolder: () => ipcRenderer.invoke("fs:selectFolder"),
   },
 })

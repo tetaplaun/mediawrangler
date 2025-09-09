@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import useExplorerStore, { useQuickLinks } from "../store/explorerStore"
+import { fsService } from "../services/fs"
 
 interface QuickLinkEditorProps {
   editingId: string | null
@@ -88,9 +89,20 @@ export function QuickLinkEditor({ editingId, onClose }: QuickLinkEditorProps) {
   }
 
   const handleBrowse = async () => {
-    // For now, we'll just show a message
-    // In a full implementation, you'd use Electron's dialog API
-    setError("Folder picker not yet implemented. Please type the path manually.")
+    try {
+      const result = await fsService.selectFolder()
+      if (result.ok && result.path) {
+        setPath(result.path)
+        // Auto-populate name if it's empty
+        if (!name.trim()) {
+          const folderName = result.path.split(/[/\\]/).filter(Boolean).pop() || "Folder"
+          setName(folderName)
+        }
+        setError(null)
+      }
+    } catch (err: any) {
+      setError("Failed to open folder picker")
+    }
   }
 
   return (

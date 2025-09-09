@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, IpcMainInvokeEvent } from "electron"
+import { app, BrowserWindow, ipcMain, shell, dialog, IpcMainInvokeEvent } from "electron"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -305,6 +305,19 @@ ipcMain.handle("fs:resetQuickLinks", async () => {
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }
   }
+})
+
+ipcMain.handle("fs:selectFolder", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Select Folder",
+    properties: ["openDirectory"],
+  })
+  
+  if (result.canceled || !result.filePaths.length) {
+    return { ok: false, path: null }
+  }
+  
+  return { ok: true, path: result.filePaths[0] }
 })
 
 // Simple concurrency limiter

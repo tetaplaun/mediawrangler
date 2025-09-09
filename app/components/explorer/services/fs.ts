@@ -37,4 +37,7 @@ export const fsService = {
   resetQuickLinks(): Promise<{ ok: boolean; error?: string }> {
     return window.electronAPI.fs.resetQuickLinks()
   },
+  selectFolder(): Promise<{ ok: boolean; path: string | null }> {
+    return window.electronAPI.fs.selectFolder()
+  },
 }
