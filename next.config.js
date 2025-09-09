@@ -2,12 +2,10 @@
 const isProd = process.env.NODE_ENV === "production"
 const nextConfig = {
   output: "export",
-  distDir: ".next",
+  distDir: "out",
   images: { unoptimized: true },
   assetPrefix: isProd ? "./" : undefined,
-  experimental: {
-    esmExternals: false,
-  },
+  trailingSlash: true,
 }
 
 module.exports = nextConfig

@@ -72,7 +72,7 @@ function createMainWindow(): BrowserWindow {
   if (isDev) {
     mainWindow.loadURL("http://localhost:3000")
   } else {
-    const indexPath = path.join(__dirname, "..", "dist", "renderer", "index.html")
+    const indexPath = path.join(__dirname, "dist", "renderer", "index.html")
     mainWindow.loadFile(indexPath)
   }
 

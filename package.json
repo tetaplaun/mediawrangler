@@ -1,18 +1,24 @@
 {
   "name": "mediawrangler",
   "version": "0.1.0",
+  "description": "A media file explorer and organizer",
+  "author": "MediaWrangler Team",
   "private": true,
   "main": "dist/electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n NEXT,ELECTRON -c magenta,cyan \"npm:dev:next\" \"npm:dev:electron\"",
     "dev:next": "next dev -p 3000",
     "dev:electron": "npm run build:electron && wait-on tcp:3000 && cross-env NODE_ENV=development electron .",
-    "build": "npm run build:web && npm run build:electron && npm run build:app",
+    "build": "npm run build:web && npm run build:electron && npm run build:prepare && npm run build:app",
     "build:web": "next build",
     "build:electron": "tsc -p electron/tsconfig.json",
-    "build:app": "electron-builder",
+    "build:prepare": "node scripts/prepare-build.js",
+    "build:app": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --publish never",
+    "build:win": "npm run build:web && npm run build:electron && npm run build:prepare && npm run build:win-manual",
+    "build:win-only": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish never",
+    "build:win-manual": "node scripts/manual-build.js",
     "start": "cross-env NODE_ENV=production electron .",
-    "clean": "rimraf .next dist release",
+    "clean": "rimraf .next dist release out",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
@@ -20,34 +26,52 @@
   },
   "build": {
     "appId": "com.mediawrangler.app",
+    "productName": "MediaWrangler",
     "files": [
-      "dist/electron/**",
-      "dist/renderer/**",
-      "package.json"
+      "dist/**/*",
+      "package.json",
+      "!dist/electron/*.ts",
+      "!dist/electron/*.map"
     ],
     "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "win": {
       "target": [
-        "nsis",
-        "zip"
-      ]
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "verifyUpdateCodeSignature": false,
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "build/icon.png"
     },
     "extraMetadata": {
       "main": "dist/electron/main.js"
@@ -76,7 +100,7 @@
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^30.0.9",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",

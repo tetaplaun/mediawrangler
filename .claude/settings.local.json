@@ -5,7 +5,11 @@
       "Read(//d/MediaProjects/2025-09-01 Dänemark/2025-08-23/IMAGE/**)",
       "Bash(powershell:*)",
       "WebSearch",
-      "Bash(exiftool:*)"
+      "Bash(exiftool:*)",
+      "Bash(dir dist)",
+      "Bash(dir:*)",
+      "Bash(\"release\\win-unpacked\\MediaWrangler.exe\")",
+      "Bash(cmd /c \"dir release\\win-unpacked\\*.exe\")"
     ],
     "deny": [],
     "ask": []

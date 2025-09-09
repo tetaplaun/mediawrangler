@@ -76,4 +76,34 @@ export default [
       "@typescript-eslint/no-var-requires": "off",
     },
   },
+  {
+    files: ["electron/**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        sourceType: "module",
+      },
+      globals: {
+        // Node.js globals for Electron main process
+        process: "readonly",
+        Buffer: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        exports: "writable",
+        module: "writable",
+        require: "readonly",
+        global: "readonly",
+        Promise: "readonly",
+        // Electron globals
+        app: "readonly",
+        BrowserWindow: "readonly",
+        ipcMain: "readonly",
+        shell: "readonly",
+        dialog: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-var-requires": "off",
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ]
