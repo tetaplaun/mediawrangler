@@ -6,7 +6,7 @@ declare global {
       ping: () => Promise<string>
       fs: {
         getDrives: () => Promise<Array<{ name: string; path: string; type: string }>>
-        getQuickLinks: () => Promise<Array<{ name: string; path: string; type: string }>>
+        getQuickLinks: () => Promise<Array<{ id: string; name: string; path: string; type: string; isCustom: boolean }>>
         listDir: (targetPath: string) => Promise<{
           path: string
           entries: Array<{
@@ -22,6 +22,12 @@ declare global {
         homeDir: () => Promise<string>
         joinPath: (base: string, name: string) => Promise<string>
         openPath: (targetPath: string) => Promise<{ ok: boolean; error?: string }>
+        addQuickLink: (name: string, targetPath: string) => Promise<{ ok: boolean; data?: any; error?: string }>
+        removeQuickLink: (id: string) => Promise<{ ok: boolean; error?: string }>
+        updateQuickLink: (id: string, updates: { name?: string; path?: string }) => Promise<{ ok: boolean; data?: any; error?: string }>
+        reorderQuickLinks: (orderedIds: string[]) => Promise<{ ok: boolean; error?: string }>
+        setShowDefaultQuickLinks: (show: boolean) => Promise<{ ok: boolean; error?: string }>
+        resetQuickLinks: () => Promise<{ ok: boolean; error?: string }>
       }
     }
   }

@@ -15,7 +15,13 @@ export type SortDir = "asc" | "desc"
 export type SortState = { key: SortKey; dir: SortDir }
 
 export type Drive = { name: string; path: string; type: "drive" }
-export type QuickLink = { name: string; path: string; type: "directory" }
+export type QuickLink = { 
+  id: string
+  name: string
+  path: string
+  type: "directory"
+  isCustom: boolean
+}
 
 export type ListDirResult = {
   path: string

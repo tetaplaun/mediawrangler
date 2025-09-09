@@ -19,4 +19,22 @@ export const fsService = {
   openPath(targetPath: string): Promise<{ ok: boolean; error?: string }> {
     return window.electronAPI.fs.openPath(targetPath)
   },
+  addQuickLink(name: string, targetPath: string): Promise<{ ok: boolean; data?: QuickLink; error?: string }> {
+    return window.electronAPI.fs.addQuickLink(name, targetPath)
+  },
+  removeQuickLink(id: string): Promise<{ ok: boolean; error?: string }> {
+    return window.electronAPI.fs.removeQuickLink(id)
+  },
+  updateQuickLink(id: string, updates: { name?: string; path?: string }): Promise<{ ok: boolean; data?: QuickLink; error?: string }> {
+    return window.electronAPI.fs.updateQuickLink(id, updates)
+  },
+  reorderQuickLinks(orderedIds: string[]): Promise<{ ok: boolean; error?: string }> {
+    return window.electronAPI.fs.reorderQuickLinks(orderedIds)
+  },
+  setShowDefaultQuickLinks(show: boolean): Promise<{ ok: boolean; error?: string }> {
+    return window.electronAPI.fs.setShowDefaultQuickLinks(show)
+  },
+  resetQuickLinks(): Promise<{ ok: boolean; error?: string }> {
+    return window.electronAPI.fs.resetQuickLinks()
+  },
 }

@@ -43,6 +43,15 @@ interface ExplorerActions {
   setFilter: (filter: string) => void
   setSort: (sort: SortState) => void
 
+  // Quick link actions
+  addQuickLink: (name: string, path: string) => Promise<boolean>
+  removeQuickLink: (id: string) => Promise<boolean>
+  updateQuickLink: (id: string, updates: { name?: string; path?: string }) => Promise<boolean>
+  reorderQuickLinks: (orderedIds: string[]) => Promise<boolean>
+  setShowDefaultQuickLinks: (show: boolean) => Promise<boolean>
+  resetQuickLinks: () => Promise<boolean>
+  refreshQuickLinks: () => Promise<void>
+
   // Internal actions
   load: (path: string) => Promise<void>
   initialize: () => Promise<void>
@@ -206,6 +215,66 @@ const useExplorerStore = create<ExplorerStore>()(
             set((state) => {
               state.error = (e as any)?.message || String(e)
             })
+          }
+        },
+
+        // Quick link management actions
+        addQuickLink: async (name: string, path: string) => {
+          const result = await fsService.addQuickLink(name, path)
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        removeQuickLink: async (id: string) => {
+          const result = await fsService.removeQuickLink(id)
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        updateQuickLink: async (id: string, updates: { name?: string; path?: string }) => {
+          const result = await fsService.updateQuickLink(id, updates)
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        reorderQuickLinks: async (orderedIds: string[]) => {
+          const result = await fsService.reorderQuickLinks(orderedIds)
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        setShowDefaultQuickLinks: async (show: boolean) => {
+          const result = await fsService.setShowDefaultQuickLinks(show)
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        resetQuickLinks: async () => {
+          const result = await fsService.resetQuickLinks()
+          if (result.ok) {
+            await get().refreshQuickLinks()
+          }
+          return result.ok
+        },
+
+        refreshQuickLinks: async () => {
+          try {
+            const quickLinks = await fsService.getQuickLinks()
+            set((state) => {
+              state.quickLinks = quickLinks
+            })
+          } catch (e) {
+            console.error("Failed to refresh quick links:", e)
           }
         },
       })),

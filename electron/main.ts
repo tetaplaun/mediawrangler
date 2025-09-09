@@ -3,6 +3,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { execFile } from "child_process"
+import { quickLinksStore, type StoredQuickLink } from "./quickLinksStore"
 
 const fsp = fs.promises
 
@@ -12,11 +13,7 @@ interface Drive {
   type: "drive"
 }
 
-interface QuickLink {
-  name: string
-  path: string
-  type: "directory"
-}
+type QuickLink = StoredQuickLink
 
 interface Entry {
   name: string
@@ -155,18 +152,7 @@ async function getDrives(): Promise<Drive[]> {
 }
 
 function getQuickLinks(): QuickLink[] {
-  const home = os.homedir()
-  const isWin = process.platform === "win32"
-  const join = (...parts: string[]) => path.join(...parts)
-  const quick: QuickLink[] = [
-    { name: "Desktop", path: join(home, "Desktop"), type: "directory" },
-    { name: "Documents", path: join(home, isWin ? "Documents" : "Documents"), type: "directory" },
-    { name: "Downloads", path: join(home, "Downloads"), type: "directory" },
-    { name: "Pictures", path: join(home, isWin ? "Pictures" : "Pictures"), type: "directory" },
-    { name: "Music", path: join(home, isWin ? "Music" : "Music"), type: "directory" },
-    { name: "Videos", path: join(home, isWin ? "Videos" : "Videos"), type: "directory" },
-  ]
-  return quick
+  return quickLinksStore.getAll()
 }
 
 async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
@@ -260,6 +246,64 @@ ipcMain.handle("fs:openPath", async (_e: IpcMainInvokeEvent, targetPath: string)
     return { ok: true }
   } catch (e: any) {
     return { ok: false, error: e?.message || String(e) }
+  }
+})
+
+// Quick link management IPC handlers
+ipcMain.handle("fs:addQuickLink", async (_e: IpcMainInvokeEvent, name: string, targetPath: string) => {
+  try {
+    const link = quickLinksStore.add(name, targetPath)
+    return { ok: true, data: link }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:removeQuickLink", async (_e: IpcMainInvokeEvent, id: string) => {
+  try {
+    const success = quickLinksStore.remove(id)
+    return { ok: success, error: success ? undefined : "Quick link not found" }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:updateQuickLink", async (_e: IpcMainInvokeEvent, id: string, updates: { name?: string; path?: string }) => {
+  try {
+    const link = quickLinksStore.update(id, updates)
+    if (!link) {
+      return { ok: false, error: "Quick link not found" }
+    }
+    return { ok: true, data: link }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:reorderQuickLinks", async (_e: IpcMainInvokeEvent, orderedIds: string[]) => {
+  try {
+    quickLinksStore.reorder(orderedIds)
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:setShowDefaultQuickLinks", async (_e: IpcMainInvokeEvent, show: boolean) => {
+  try {
+    quickLinksStore.setShowDefaults(show)
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:resetQuickLinks", async () => {
+  try {
+    quickLinksStore.reset()
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
   }
 })
 
