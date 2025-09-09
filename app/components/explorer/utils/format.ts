@@ -18,3 +18,11 @@ export function formatDate(ms: number | null) {
     return ""
   }
 }
+
+export function formatDisplayPath(path: string): string {
+  // Special case for drives view
+  if (path === "::drives") {
+    return "Drives"
+  }
+  return path
+}

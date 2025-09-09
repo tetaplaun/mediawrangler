@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react"
 import { getParentPath } from "../utils/path"
 import { useDebounce } from "../hooks/useDebounce"
+import { formatDisplayPath } from "../utils/format"
 import useExplorerStore, {
   useGoBack,
   useGoForward,
@@ -29,12 +30,12 @@ export function Toolbar() {
   const setFilter = useExplorerStore((state) => state.setFilter)
 
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const [addressValue, setAddressValue] = useState(currentPath)
+  const [addressValue, setAddressValue] = useState(formatDisplayPath(currentPath))
   const [searchValue, setSearchValue] = useState("")
   const debouncedSearchValue = useDebounce(searchValue, 300)
 
   useEffect(() => {
-    setAddressValue(currentPath)
+    setAddressValue(formatDisplayPath(currentPath))
   }, [currentPath])
 
   useEffect(() => {
@@ -71,7 +72,11 @@ export function Toolbar() {
         onSubmit={(e) => {
           e.preventDefault()
           const v = addressValue.trim()
-          if (v) navigateTo(v)
+          if (v) {
+            // Convert display path back to internal path for navigation
+            const internalPath = v === "Drives" ? "::drives" : v
+            navigateTo(internalPath)
+          }
         }}
         className="mx-2 flex min-w-0 flex-1"
       >
