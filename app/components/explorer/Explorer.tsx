@@ -45,6 +45,10 @@ export default function Explorer() {
   const [filter, setFilter] = useState<string>("")
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [sort, setSort] = useState<{
+    key: "name" | "type" | "size" | "modifiedMs"
+    dir: "asc" | "desc"
+  }>({ key: "name", dir: "asc" })
 
   const addressRef = useRef<HTMLInputElement | null>(null)
 
@@ -149,6 +153,49 @@ export default function Explorer() {
     return entries.filter((e) => e.name.toLowerCase().includes(term))
   }, [entries, filter])
 
+  const sortedEntries = useMemo(() => {
+    const copy = [...filteredEntries]
+    const dirMul = sort.dir === "asc" ? 1 : -1
+    copy.sort((a, b) => {
+      const key = sort.key
+      if (key === "name") {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * dirMul
+      }
+      if (key === "type") {
+        const typeA = a.type || ""
+        const typeB = b.type || ""
+        const cmp = typeA.localeCompare(typeB, undefined, { sensitivity: "base" })
+        if (cmp !== 0) return cmp * dirMul
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * dirMul
+      }
+      if (key === "size") {
+        const av = a.size ?? -1
+        const bv = b.size ?? -1
+        if (av === bv)
+          return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * dirMul
+        return (av < bv ? -1 : 1) * dirMul
+      }
+      // modifiedMs
+      {
+        const av = a.modifiedMs ?? 0
+        const bv = b.modifiedMs ?? 0
+        if (av === bv)
+          return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * dirMul
+        return (av < bv ? -1 : 1) * dirMul
+      }
+    })
+    return copy
+  }, [filteredEntries, sort])
+
+  const toggleSort = (key: "name" | "type" | "size" | "modifiedMs") => {
+    setSort((prev) => {
+      if (prev.key === key) {
+        return { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+      }
+      return { key, dir: key === "name" ? "asc" : "asc" }
+    })
+  }
+
   return (
     <div className="flex h-screen w-full select-none bg-[#1f1f1f] text-[rgb(235,235,235)]">
       {/* Sidebar */}
@@ -246,7 +293,7 @@ export default function Explorer() {
         </div>
 
         {/* Content */}
-        <div className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e] p-2">
+        <div className="min-h-0 flex-1 overflow-auto bg-[#1e1e1e]">
           {loading ? (
             <div className="p-4 text-sm text-gray-400">Loading...</div>
           ) : error ? (
@@ -271,25 +318,57 @@ export default function Explorer() {
               ))}
             </div>
           ) : (
-            <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+            <table className="w-full table-fixed border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-[#202020]">
                 <tr>
-                  <th className="w-1/2 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
-                    Name
+                  <th className="w-1/2 border-b border-[#2b2b2b] p-0">
+                    <button
+                      onClick={() => toggleSort("name")}
+                      className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                    >
+                      <span>Name</span>
+                      <span className="text-xs opacity-70">
+                        {sort.key === "name" ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+                      </span>
+                    </button>
                   </th>
-                  <th className="w-1/6 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
-                    Type
+                  <th className="w-1/6 border-b border-[#2b2b2b] p-0">
+                    <button
+                      onClick={() => toggleSort("type")}
+                      className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                    >
+                      <span>Type</span>
+                      <span className="text-xs opacity-70">
+                        {sort.key === "type" ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+                      </span>
+                    </button>
                   </th>
-                  <th className="w-1/6 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
-                    Size
+                  <th className="w-1/6 border-b border-[#2b2b2b] p-0">
+                    <button
+                      onClick={() => toggleSort("size")}
+                      className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                    >
+                      <span>Size</span>
+                      <span className="text-xs opacity-70">
+                        {sort.key === "size" ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+                      </span>
+                    </button>
                   </th>
-                  <th className="w-1/6 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
-                    Date modified
+                  <th className="w-1/6 border-b border-[#2b2b2b] p-0">
+                    <button
+                      onClick={() => toggleSort("modifiedMs")}
+                      className="flex w-full items-center justify-between px-2 py-1 text-left font-medium hover:bg-[#262626]"
+                    >
+                      <span>Date modified</span>
+                      <span className="text-xs opacity-70">
+                        {sort.key === "modifiedMs" ? (sort.dir === "asc" ? "▲" : "▼") : ""}
+                      </span>
+                    </button>
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredEntries.map((e) => (
+                {sortedEntries.map((e) => (
                   <tr
                     key={e.path}
                     className="cursor-default hover:bg-[#2a2a2a]"
