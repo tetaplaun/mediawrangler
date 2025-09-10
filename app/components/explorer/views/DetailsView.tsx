@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback } from "react"
-import useExplorerStore, { useSortedEntries } from "../store/explorerStore"
+import useExplorerStore, { useSortedEntries, useMediaInfoProgress } from "../store/explorerStore"
+import { ProgressBar } from "../../ProgressBar"
 import type { Entry } from "../types/explorer"
 
 function formatBytes(size: number | null) {
@@ -114,6 +115,7 @@ export function DetailsView() {
   const mediaInfoLoading = useExplorerStore((state) => state.mediaInfoLoading)
   const selectedEntries = useExplorerStore((state) => state.selectedEntries)
   const toggleEntrySelection = useExplorerStore((state) => state.toggleEntrySelection)
+  const progress = useMediaInfoProgress()
 
   const openEntry = useCallback(
     async (e: Entry) => {
@@ -135,6 +137,12 @@ export function DetailsView() {
 
   return (
     <div className="w-full overflow-x-auto">
+      {/* Show progress bar when loading metadata */}
+      {progress.total > 0 && progress.loaded < progress.total && (
+        <div className="mb-4 px-2">
+          <ProgressBar progress={progress.loaded} total={progress.total} />
+        </div>
+      )}
       <table className="w-full table-auto border-collapse text-sm">
         <thead className="sticky top-0 z-10 bg-[#202020]">
           <tr>

@@ -21,6 +21,7 @@ interface ExplorerState {
   // Media info cache
   mediaInfoCache: Record<string, any>
   mediaInfoLoading: Record<string, boolean>
+  mediaInfoProgress: { loaded: number; total: number }
 
   // UI state
   loading: boolean
@@ -88,6 +89,7 @@ const useExplorerStore = create<ExplorerStore>()(
         drives: [],
         mediaInfoCache: {},
         mediaInfoLoading: {},
+        mediaInfoProgress: { loaded: 0, total: 0 },
         loading: false,
         error: null,
         viewMode: "details",
@@ -108,6 +110,7 @@ const useExplorerStore = create<ExplorerStore>()(
             // Clear media info cache when changing directories
             state.mediaInfoCache = {}
             state.mediaInfoLoading = {}
+            state.mediaInfoProgress = { loaded: 0, total: 0 }
           })
 
           try {
@@ -249,11 +252,13 @@ const useExplorerStore = create<ExplorerStore>()(
             state.showHiddenFiles = show
             // Re-filter entries based on hidden files setting
             const baseFiltered = state.filter
-              ? state.entries.filter((e) => e.name.toLowerCase().includes(state.filter.toLowerCase()))
+              ? state.entries.filter((e) =>
+                  e.name.toLowerCase().includes(state.filter.toLowerCase())
+                )
               : state.entries
             const filtered = show
               ? baseFiltered
-              : baseFiltered.filter((e) => !e.name.startsWith('.'))
+              : baseFiltered.filter((e) => !e.name.startsWith("."))
             state.filteredEntries = filtered
             state.sortedEntries = sortEntries(filtered, state.sort)
           })
@@ -269,7 +274,7 @@ const useExplorerStore = create<ExplorerStore>()(
         // Toggle entry selection
         toggleEntrySelection: (entry: Entry) => {
           set((state) => {
-            const index = state.selectedEntries.findIndex(e => e.path === entry.path)
+            const index = state.selectedEntries.findIndex((e) => e.path === entry.path)
             if (index >= 0) {
               state.selectedEntries.splice(index, 1)
             } else {
@@ -362,32 +367,64 @@ const useExplorerStore = create<ExplorerStore>()(
         // Load media info for files progressively
         loadMediaInfo: async () => {
           const { entries, mediaInfoCache, mediaInfoLoading } = get()
-          
+
           // Filter entries that are media files and don't have cached info
           const mediaFiles = entries.filter((entry) => {
             if (entry.type !== "file" || !entry.ext) return false
-            
+
             const mediaExts = [
-              'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv',
-              'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'heic', 'heif'
+              "mp4",
+              "mov",
+              "mkv",
+              "avi",
+              "webm",
+              "m4v",
+              "mpg",
+              "mpeg",
+              "wmv",
+              "flv",
+              "jpg",
+              "jpeg",
+              "png",
+              "gif",
+              "webp",
+              "bmp",
+              "svg",
+              "tiff",
+              "ico",
+              "heic",
+              "heif",
             ]
-            
-            return mediaExts.includes(entry.ext.toLowerCase()) && 
-                   !mediaInfoCache[entry.path] && 
-                   !mediaInfoLoading[entry.path]
+
+            return (
+              mediaExts.includes(entry.ext.toLowerCase()) &&
+              !mediaInfoCache[entry.path] &&
+              !mediaInfoLoading[entry.path]
+            )
           })
 
-          if (mediaFiles.length === 0) return
+          if (mediaFiles.length === 0) {
+            // Reset progress if no files to load
+            set((state) => {
+              state.mediaInfoProgress = { loaded: 0, total: 0 }
+            })
+            return
+          }
+
+          // Initialize progress
+          set((state) => {
+            state.mediaInfoProgress = { loaded: 0, total: mediaFiles.length }
+          })
 
           // Process in batches of 20 files
           const batchSize = 20
           for (let i = 0; i < mediaFiles.length; i += batchSize) {
             const batch = mediaFiles.slice(i, i + batchSize)
-            const paths = batch.map(f => f.path)
+            const paths = batch.map((f) => f.path)
 
             // Mark as loading
             set((state) => {
-              paths.forEach(path => {
+              paths.forEach((path) => {
                 state.mediaInfoLoading[path] = true
               })
             })
@@ -398,18 +435,23 @@ const useExplorerStore = create<ExplorerStore>()(
                 const mediaData = result.data
                 set((state) => {
                   // Update cache and entries
+                  let loadedCount = 0
                   mediaData.forEach(({ path, mediaInfo }) => {
                     if (mediaInfo) {
                       state.mediaInfoCache[path] = mediaInfo
-                      
+
                       // Update the entry with media info
-                      const entryIndex = state.entries.findIndex(e => e.path === path)
+                      const entryIndex = state.entries.findIndex((e) => e.path === path)
                       if (entryIndex !== -1) {
                         state.entries[entryIndex].mediaInfo = mediaInfo
                       }
+                      loadedCount++
                     }
                     delete state.mediaInfoLoading[path]
                   })
+
+                  // Update progress
+                  state.mediaInfoProgress.loaded += loadedCount
 
                   // Update computed values with new media info
                   const filtered = state.filter
@@ -420,18 +462,27 @@ const useExplorerStore = create<ExplorerStore>()(
                   state.filteredEntries = filtered
                   state.sortedEntries = sortEntries(filtered, state.sort)
                 })
+              } else {
+                // If batch failed, still update progress for the paths that were attempted
+                set((state) => {
+                  state.mediaInfoProgress.loaded += paths.length
+                  paths.forEach((path) => {
+                    delete state.mediaInfoLoading[path]
+                  })
+                })
               }
             } catch (e) {
               console.error("Failed to load media info batch:", e)
               set((state) => {
-                paths.forEach(path => {
+                state.mediaInfoProgress.loaded += paths.length
+                paths.forEach((path) => {
                   delete state.mediaInfoLoading[path]
                 })
               })
             }
 
             // Small delay between batches to prevent UI blocking
-            await new Promise(resolve => setTimeout(resolve, 100))
+            await new Promise((resolve) => setTimeout(resolve, 100))
           }
         },
       })),
@@ -479,5 +530,7 @@ export const useNavigation = () => ({
   canGoForward: useCanGoForward(),
   canGoUp: useCanGoUp(),
 })
+
+export const useMediaInfoProgress = () => useExplorerStore((state) => state.mediaInfoProgress)
 
 export default useExplorerStore
