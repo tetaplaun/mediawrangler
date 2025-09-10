@@ -834,8 +834,15 @@ async function importDjiFiles(
           }
           event.sender.send("import-progress", progress)
         }
-        
-        await copyFileWithRetry(file.path, targetPath)
+
+        // Create progress callback for file copy
+        const progressCallback = (progress: FileCopyProgress) => {
+          if (event) {
+            event.sender.send("file-copy-progress", progress)
+          }
+        }
+
+        await copyFileWithRetry(file.path, targetPath, 3, progressCallback)
         result.imported++
         filesProcessed++
       } catch (fileError) {
@@ -908,9 +915,16 @@ async function importPanoramaFolders(
         }
         event.sender.send("import-progress", progress)
       }
-      
+
+      // Create progress callback for file copy
+      const progressCallback = (progress: FileCopyProgress) => {
+        if (event) {
+          event.sender.send("file-copy-progress", progress)
+        }
+      }
+
       // Copy the entire folder recursively
-      await copyDirectoryRecursive(sourcePanoPath, targetPanoPath)
+      await copyDirectoryRecursive(sourcePanoPath, targetPanoPath, progressCallback)
       result.imported++
       foldersProcessed++
     } catch (folderError) {
@@ -985,7 +999,11 @@ async function listDirectoriesOnly(targetPath: string): Promise<{
 /**
  * Recursively copy a directory
  */
-async function copyDirectoryRecursive(source: string, target: string): Promise<void> {
+async function copyDirectoryRecursive(
+  source: string,
+  target: string,
+  onProgress?: (progress: FileCopyProgress) => void
+): Promise<void> {
   await fsp.mkdir(target, { recursive: true })
 
   const entries = await fsp.readdir(source, { withFileTypes: true })
@@ -995,9 +1013,9 @@ async function copyDirectoryRecursive(source: string, target: string): Promise<v
     const targetPath = path.join(target, entry.name)
 
     if (entry.isDirectory()) {
-      await copyDirectoryRecursive(sourcePath, targetPath)
+      await copyDirectoryRecursive(sourcePath, targetPath, onProgress)
     } else {
-      await copyFileWithRetry(sourcePath, targetPath)
+      await copyFileWithRetry(sourcePath, targetPath, 3, onProgress)
     }
   }
 }
@@ -1382,6 +1400,16 @@ interface ImportError {
   retryCount: number
 }
 
+interface FileCopyProgress {
+  fileName: string
+  transferred: number
+  total: number
+  percentage: number
+  speed: number // bytes per second
+  eta: number // estimated time remaining in seconds
+  status: "copying" | "completed" | "failed" | "retrying"
+}
+
 interface DetailedImportResult {
   imported: number
   total: number
@@ -1459,14 +1487,134 @@ function categorizeError(error: unknown, fileName: string): ImportError {
   }
 }
 
+/**
+ * Enhanced file copy with streaming and progress tracking
+ */
+async function copyFileWithProgress(
+  sourcePath: string,
+  targetPath: string,
+  onProgress?: (progress: FileCopyProgress) => void
+): Promise<void> {
+  const stats = await fsp.stat(sourcePath)
+  const totalSize = stats.size
+
+  // For small files (< 1MB), use regular copy for better performance
+  if (totalSize < 1024 * 1024 || !onProgress) {
+    await fsp.copyFile(sourcePath, targetPath)
+    if (onProgress) {
+      const fileName = path.basename(sourcePath)
+      onProgress({
+        fileName,
+        transferred: totalSize,
+        total: totalSize,
+        percentage: 100,
+        speed: 0,
+        eta: 0,
+        status: "completed",
+      })
+    }
+    return
+  }
+
+  // For larger files, use streaming with progress tracking
+  return new Promise((resolve, reject) => {
+    let transferred = 0
+    let lastProgressUpdate = Date.now()
+    let startTime = Date.now()
+
+    const readStream = fs.createReadStream(sourcePath)
+    const writeStream = fs.createWriteStream(targetPath)
+    const fileName = path.basename(sourcePath)
+
+    readStream.on("data", (chunk) => {
+      transferred += chunk.length
+      const now = Date.now()
+      const timeDiff = (now - lastProgressUpdate) / 1000 // seconds
+
+      // Throttle progress updates to every 100ms to avoid overwhelming UI
+      if (timeDiff >= 0.1 && onProgress) {
+        const elapsed = (now - startTime) / 1000
+        const speed = transferred / elapsed // bytes per second
+        const remaining = totalSize - transferred
+        const eta = speed > 0 ? remaining / speed : 0
+
+        onProgress({
+          fileName,
+          transferred,
+          total: totalSize,
+          percentage: Math.round((transferred / totalSize) * 100),
+          speed: Math.round(speed),
+          eta: Math.round(eta),
+          status: "copying",
+        })
+
+        lastProgressUpdate = now
+      }
+    })
+
+    readStream.on("end", () => {
+      // Send final progress update
+      if (onProgress) {
+        const elapsed = (Date.now() - startTime) / 1000
+        const speed = totalSize / elapsed
+
+        onProgress({
+          fileName,
+          transferred: totalSize,
+          total: totalSize,
+          percentage: 100,
+          speed: Math.round(speed),
+          eta: 0,
+          status: "completed",
+        })
+      }
+      resolve()
+    })
+
+    readStream.on("error", (error) => {
+      if (onProgress) {
+        onProgress({
+          fileName,
+          transferred,
+          total: totalSize,
+          percentage: Math.round((transferred / totalSize) * 100),
+          speed: 0,
+          eta: 0,
+          status: "failed",
+        })
+      }
+      reject(error)
+    })
+
+    writeStream.on("error", (error) => {
+      if (onProgress) {
+        onProgress({
+          fileName,
+          transferred,
+          total: totalSize,
+          percentage: Math.round((transferred / totalSize) * 100),
+          speed: 0,
+          eta: 0,
+          status: "failed",
+        })
+      }
+      reject(error)
+    })
+
+    // Pipe the streams
+    readStream.pipe(writeStream)
+  })
+}
+
 async function copyFileWithRetry(
   sourcePath: string,
   targetPath: string,
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  onProgress?: (progress: FileCopyProgress) => void
 ): Promise<{ success: boolean; error?: ImportError }> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      await fsp.copyFile(sourcePath, targetPath)
+      await copyFileWithProgress(sourcePath, targetPath, onProgress)
 
       // Preserve original file dates
       const stats = await fsp.stat(sourcePath)
@@ -1476,6 +1624,19 @@ async function copyFileWithRetry(
     } catch (error) {
       const fileName = path.basename(sourcePath)
       const importError = categorizeError(error, fileName)
+
+      // Send progress update for retry attempt
+      if (onProgress) {
+        onProgress({
+          fileName,
+          transferred: 0,
+          total: 0,
+          percentage: 0,
+          speed: 0,
+          eta: 0,
+          status: attempt < maxRetries ? "retrying" : "failed",
+        })
+      }
 
       // If this is the last attempt or error is not retryable
       if (attempt === maxRetries || !importError.canRetry) {
@@ -1553,7 +1714,7 @@ ipcMain.handle(
         // Pre-calculate grand total for progress reporting
         let djiFilesToImport = 0
         let panoramaFoldersToImport = 0
-        
+
         // Count DJI files to import
         if (sourceAnalysis.djiFolders.length > 0) {
           for (const djiFolder of sourceAnalysis.djiFolders) {
@@ -1570,20 +1731,22 @@ ipcMain.handle(
             }
           }
         }
-        
+
         // Count panorama folders to import (with date filtering)
         if (sourceAnalysis.panoramaFolders.length > 0) {
           if (selectedDate) {
             panoramaFoldersToImport = sourceAnalysis.panoramaFolders.filter(
-              folder => sourceAnalysis.panoramaFolderDates[folder] === selectedDate
+              (folder) => sourceAnalysis.panoramaFolderDates[folder] === selectedDate
             ).length
           } else {
             panoramaFoldersToImport = sourceAnalysis.panoramaFolders.length
           }
         }
-        
+
         const grandTotal = djiFilesToImport + panoramaFoldersToImport
-        console.log(`Grand total items to import: ${grandTotal} (${djiFilesToImport} DJI files, ${panoramaFoldersToImport} panorama folders)`)
+        console.log(
+          `Grand total items to import: ${grandTotal} (${djiFilesToImport} DJI files, ${panoramaFoldersToImport} panorama folders)`
+        )
 
         // Import DJI files (if any DJI folders exist)
         if (sourceAnalysis.djiFolders.length > 0 && djiFilesToImport > 0) {
@@ -1738,9 +1901,14 @@ ipcMain.handle(
                 currentFile: file.name,
               }
               event.sender.send("import-progress", progress)
-              
+
+              // Create progress callback for file copy
+              const progressCallback = (progress: FileCopyProgress) => {
+                event.sender.send("file-copy-progress", progress)
+              }
+
               // Copy the file with retry mechanism
-              const copyResult = await copyFileWithRetry(file.path, targetPath)
+              const copyResult = await copyFileWithRetry(file.path, targetPath, 3, progressCallback)
 
               if (copyResult.success) {
                 totalImported++

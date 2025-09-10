@@ -144,6 +144,17 @@ declare global {
           currentPath: string
         }) => void
       ) => () => void
+      onFileCopyProgress: (
+        callback: (progress: {
+          fileName: string
+          transferred: number
+          total: number
+          percentage: number
+          speed: number
+          eta: number
+          status: "copying" | "completed" | "failed" | "retrying"
+        }) => void
+      ) => () => void
     }
   }
 }

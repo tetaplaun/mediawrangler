@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { formatBytes } from "../utils/format"
 import path from "path"
+import { FileProgressList } from "./FileProgressList"
 
 interface MediaFileInfo {
   path: string
@@ -1193,6 +1194,11 @@ export function ImportDialog({
                     </svg>
                   </div>
                 </div>
+              </div>
+
+              {/* Individual File Progress - Always visible during import */}
+              <div className="mt-6 pt-6 border-t border-neutral-600/50">
+                <FileProgressList maxVisible={5} showCompleted={true} />
               </div>
             </div>
           )}

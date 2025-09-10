@@ -54,4 +54,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("analyze-progress", (_event, progress) => callback(progress))
     return () => ipcRenderer.removeAllListeners("analyze-progress")
   },
+  onFileCopyProgress: (callback: (progress: any) => void) => {
+    ipcRenderer.on("file-copy-progress", (_event, progress) => callback(progress))
+    return () => ipcRenderer.removeAllListeners("file-copy-progress")
+  },
 })
