@@ -11,7 +11,8 @@
       "Bash(\"release\\win-unpacked\\MediaWrangler.exe\")",
       "Bash(cmd /c \"dir release\\win-unpacked\\*.exe\")",
       "mcp__ide__getDiagnostics",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

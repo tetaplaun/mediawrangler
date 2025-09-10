@@ -1,9 +1,20 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, IpcMainInvokeEvent } from "electron"
+/// <reference types="node" />
+
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  IpcMainInvokeEvent,
+  MessageBoxOptions,
+} from "electron"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { execFile, exec } from "child_process"
 import { promisify } from "util"
+import { setTimeout as setTimeoutFn } from "timers"
 import { quickLinksStore, type StoredQuickLink } from "./quickLinksStore"
 import * as ffmpeg from "fluent-ffmpeg"
 import * as ffmpegInstaller from "@ffmpeg-installer/ffmpeg"
@@ -123,7 +134,7 @@ ipcMain.handle("app:ping", async () => {
 })
 
 // Show native message box dialog
-ipcMain.handle("app:showMessageBox", async (_e: IpcMainInvokeEvent, options: any) => {
+ipcMain.handle("app:showMessageBox", async (_e: IpcMainInvokeEvent, options: MessageBoxOptions) => {
   const focusedWindow = BrowserWindow.getFocusedWindow()
   if (focusedWindow) {
     return await dialog.showMessageBox(focusedWindow, options)
@@ -212,7 +223,7 @@ async function getDateFromExifTool(filePath: string): Promise<string | null> {
       }
     }
     return null
-  } catch (err) {
+  } catch {
     // Silently fail if ExifTool is not available or has an error
     return null
   }
@@ -315,7 +326,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
     if (dimensions.type) {
       mediaInfo.format = dimensions.type.toUpperCase()
     }
-  } catch (err) {
+  } catch {
     // Silently fail - dimensions not critical
   }
 
@@ -364,7 +375,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
           }
         }
       }
-    } catch (err) {
+    } catch {
       // Silently fail - exifr might not support all formats
     }
 
@@ -421,7 +432,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
                 if (fileDate) {
                   mediaInfo.encodedDate = fileDate.toISOString()
                 }
-              } catch (statErr) {
+              } catch {
                 // Silently fail - file stats not available
               }
             }
@@ -429,7 +440,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
             resolve()
           })
         })
-      } catch (ffprobeErr) {
+      } catch {
         // Silently fail - ffprobe not critical
       }
     }
@@ -450,14 +461,14 @@ async function getMediaInfo(filePath: string, ext: string | null): Promise<Media
       // Add timeout to video processing (longer for large files)
       const videoPromise = getVideoInfo(filePath)
       const timeoutPromise = new Promise<undefined>((resolve) => {
-        setTimeout(() => resolve(undefined), 60000) // 60 second timeout for videos (for very large files)
+        setTimeoutFn(() => resolve(undefined), 60000) // 60 second timeout for videos (for very large files)
       })
       mediaInfo = await Promise.race([videoPromise, timeoutPromise])
     } else if (isImageFile(ext)) {
       // Add timeout to image processing
       const imagePromise = getImageInfo(filePath)
       const timeoutPromise = new Promise<undefined>((resolve) => {
-        setTimeout(() => resolve(undefined), 5000) // 5 second timeout for images
+        setTimeoutFn(() => resolve(undefined), 5000) // 5 second timeout for images
       })
       mediaInfo = await Promise.race([imagePromise, timeoutPromise])
     }
@@ -513,7 +524,9 @@ async function getDrives(): Promise<Drive[]> {
   try {
     const ps = await getDrivesViaPowerShell()
     if (ps && Array.isArray(ps) && ps.length) return ps
-  } catch (_) {}
+  } catch {
+    // PowerShell method failed, fall back to manual probing
+  }
 
   // Fallback: probe letters asynchronously with limited concurrency
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")
@@ -522,7 +535,7 @@ async function getDrives(): Promise<Drive[]> {
     try {
       await fsp.access(drivePath)
       return { ok: true, drivePath }
-    } catch (_) {
+    } catch {
       return { ok: false, drivePath }
     }
   })
@@ -557,15 +570,15 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
     if (!resolved || resolved === "~") resolved = os.homedir()
     // Normalize and ensure it exists
     resolved = path.resolve(resolved)
-  } catch (e) {
+  } catch {
     resolved = os.homedir()
   }
 
   let dirents: fs.Dirent[]
   try {
     dirents = await fsp.readdir(resolved, { withFileTypes: true })
-  } catch (e: any) {
-    return { path: resolved, entries: [], error: e?.message || String(e) }
+  } catch (e: unknown) {
+    return { path: resolved, entries: [], error: e instanceof Error ? e.message : String(e) }
   }
 
   const entries = await mapLimit(dirents, 24, async (d) => {
@@ -575,7 +588,9 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
     if (!isDirectory) {
       try {
         stats = await fsp.stat(entryPath)
-      } catch (_) {}
+      } catch {
+        // File may have been deleted or access denied, continue without stats
+      }
     }
     const ext = !isDirectory ? path.extname(d.name).replace(/^\./, "").toLowerCase() : null
 
@@ -625,7 +640,7 @@ async function findRemovableDriveWithDCIM(): Promise<string | null> {
       await fsp.access(dcimPath)
       // If we can access DCIM directory, this is likely a camera drive
       return dcimPath
-    } catch (_) {
+    } catch {
       // DCIM directory not found or not accessible, continue checking other drives
     }
   }
@@ -741,7 +756,7 @@ async function importDjiFiles(
 
   // Analyze DJI folders for media files
   const filesByDate: Record<string, MediaFileInfo[]> = {}
-  let totalFiles = 0
+  let _totalFiles = 0
 
   for (const djiFolder of djiFolders) {
     const djiPath = path.join(sourcePath, djiFolder)
@@ -752,7 +767,7 @@ async function importDjiFiles(
         if (!filesByDate[date]) filesByDate[date] = []
         filesByDate[date].push(...files)
       })
-      totalFiles += folderAnalysis.totalFiles
+      _totalFiles += folderAnalysis.totalFiles
     } catch (err) {
       console.error(`Failed to analyze DJI folder ${djiFolder}:`, err)
     }
@@ -804,9 +819,9 @@ async function importDjiFiles(
       continue
     }
 
-    // Copy files
-    let filesProcessed = 0
-    await mapLimit(files, 8, async (file) => {
+    // Copy files sequentially
+    let _filesProcessed = 0
+    await mapLimit(files, 1, async (file) => {
       try {
         const targetDir = file.type === "image" ? imagesDir : videosDir
         let targetPath = path.join(targetDir, file.name)
@@ -844,11 +859,11 @@ async function importDjiFiles(
 
         await copyFileWithRetry(file.path, targetPath, 3, progressCallback)
         result.imported++
-        filesProcessed++
+        _filesProcessed++
       } catch (fileError) {
         const fileErrorObj = categorizeError(fileError, file.path)
         result.errors.push(fileErrorObj)
-        filesProcessed++
+        _filesProcessed++
       }
     })
   }
@@ -890,7 +905,7 @@ async function importPanoramaFolders(
   }
 
   // Process each panorama folder
-  let foldersProcessed = 0
+  let _foldersProcessed = 0
   for (const panoFolder of panoramaFolders) {
     const sourcePanoPath = path.join(sourcePath, panoFolder)
     const targetPanoPath = path.join(panoSourcesDir, panoFolder)
@@ -902,7 +917,7 @@ async function importPanoramaFolders(
       // Skip if date filtering is enabled and doesn't match
       if (selectedDate && folderDate && folderDate !== selectedDate) {
         // Silently skip without tracking
-        foldersProcessed++
+        _foldersProcessed++
         continue
       }
 
@@ -926,11 +941,11 @@ async function importPanoramaFolders(
       // Copy the entire folder recursively
       await copyDirectoryRecursive(sourcePanoPath, targetPanoPath, progressCallback)
       result.imported++
-      foldersProcessed++
+      _foldersProcessed++
     } catch (folderError) {
       const folderErrorObj = categorizeError(folderError, sourcePanoPath)
       result.errors.push(folderErrorObj)
-      foldersProcessed++
+      _foldersProcessed++
     }
   }
 
@@ -969,7 +984,7 @@ async function listDirectoriesOnly(targetPath: string): Promise<{
               modifiedMs: stats.mtimeMs,
               ext: null,
             }
-          } catch (err) {
+          } catch {
             // If we can't read stats, still include the directory
             return {
               name: entry.name,
@@ -1047,8 +1062,8 @@ ipcMain.handle("fs:openPath", async (_e: IpcMainInvokeEvent, targetPath: string)
     const result = await shell.openPath(targetPath)
     if (result) return { ok: false, error: result }
     return { ok: true }
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e) }
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 })
 
@@ -1059,8 +1074,8 @@ ipcMain.handle(
     try {
       const link = quickLinksStore.add(name, targetPath)
       return { ok: true, data: link }
-    } catch (error: any) {
-      return { ok: false, error: error?.message || String(error) }
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }
 )
@@ -1069,8 +1084,8 @@ ipcMain.handle("fs:removeQuickLink", async (_e: IpcMainInvokeEvent, id: string) 
   try {
     const success = quickLinksStore.remove(id)
     return { ok: success, error: success ? undefined : "Quick link not found" }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1083,8 +1098,8 @@ ipcMain.handle(
         return { ok: false, error: "Quick link not found" }
       }
       return { ok: true, data: link }
-    } catch (error: any) {
-      return { ok: false, error: error?.message || String(error) }
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }
 )
@@ -1093,8 +1108,8 @@ ipcMain.handle("fs:reorderQuickLinks", async (_e: IpcMainInvokeEvent, orderedIds
   try {
     quickLinksStore.reorder(orderedIds)
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1102,8 +1117,8 @@ ipcMain.handle("fs:setShowDefaultQuickLinks", async (_e: IpcMainInvokeEvent, sho
   try {
     quickLinksStore.setShowDefaults(show)
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1111,8 +1126,8 @@ ipcMain.handle("fs:resetQuickLinks", async () => {
   try {
     quickLinksStore.reset()
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1134,8 +1149,8 @@ ipcMain.handle("fs:getMediaInfo", async (_e: IpcMainInvokeEvent, filePath: strin
     const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
     const mediaInfo = await getMediaInfo(filePath, ext)
     return { ok: true, data: mediaInfo }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1143,8 +1158,8 @@ ipcMain.handle("fs:createFolder", async (_e: IpcMainInvokeEvent, folderPath: str
   try {
     await fsp.mkdir(folderPath, { recursive: true })
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1157,8 +1172,8 @@ ipcMain.handle("fs:deleteItem", async (_e: IpcMainInvokeEvent, itemPath: string)
       await fsp.unlink(itemPath)
     }
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1180,8 +1195,8 @@ ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths:
     })
 
     return { ok: true, data: results }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1190,8 +1205,8 @@ ipcMain.handle("fs:clearAnalysisCache", async () => {
   try {
     analysisCache.clear()
     return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
@@ -1208,8 +1223,8 @@ ipcMain.handle(
       // We set both atime and mtime to the encoded date
       await fsp.utimes(filePath, date, date)
       return { ok: true }
-    } catch (error: any) {
-      return { ok: false, error: error?.message || String(error) }
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }
 )
@@ -1244,7 +1259,7 @@ async function analyzeSourceDirectory(
 
   // Add timeout to prevent infinite hanging
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error("Analysis timeout after 15 minutes")), 15 * 60 * 1000)
+    setTimeoutFn(() => reject(new Error("Analysis timeout after 15 minutes")), 15 * 60 * 1000)
   })
 
   async function scanDirectory(dirPath: string, depth = 0): Promise<void> {
@@ -1337,12 +1352,12 @@ async function analyzeSourceDirectory(
     }
   }
 
-  console.log(`Starting analysis of: ${sourcePath}`)
+  console.warn(`Starting analysis of: ${sourcePath}`)
 
   try {
     await Promise.race([scanDirectory(sourcePath), timeoutPromise])
 
-    console.log(
+    console.warn(
       `Analysis completed: ${totalFiles} media files found, ${scannedDirs} directories scanned`
     )
 
@@ -1645,7 +1660,7 @@ async function copyFileWithRetry(
       }
 
       // Wait before retrying (exponential backoff)
-      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000))
+      await new Promise((resolve) => setTimeoutFn(resolve, Math.pow(2, attempt) * 1000))
     }
   }
 
@@ -1662,7 +1677,7 @@ ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath:
     const cached = analysisCache.get(cacheKey)
 
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      console.log(`Using cached analysis for: ${sourcePath}`)
+      console.warn(`Using cached analysis for: ${sourcePath}`)
       return { ok: true, data: cached.result }
     }
 
@@ -1671,7 +1686,7 @@ ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath:
 
     const analysisPromise = analyzeSourceDirectory(sourcePath, event)
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("Analysis timeout")), 20 * 60 * 1000) // 20 minute timeout
+      setTimeoutFn(() => reject(new Error("Analysis timeout")), 20 * 60 * 1000) // 20 minute timeout
     })
 
     const result = await Promise.race([analysisPromise, timeoutPromise])
@@ -1680,9 +1695,9 @@ ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath:
     analysisCache.set(cacheKey, { result, timestamp: Date.now() })
 
     return { ok: true, data: result }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Analysis IPC handler error:", error)
-    return { ok: false, error: error?.message || "Analysis failed" }
+    return { ok: false, error: error instanceof Error ? error.message : "Analysis failed" }
   }
 })
 
@@ -1696,11 +1711,11 @@ ipcMain.handle(
     createDateFolders: boolean = false
   ) => {
     try {
-      console.log(`Starting enhanced import from ${sourcePath} to ${destinationPath}`)
+      console.warn(`Starting enhanced import from ${sourcePath} to ${destinationPath}`)
 
       // Analyze source structure to determine import strategy
       const sourceAnalysis = await analyzeSourceForImport(sourcePath)
-      console.log(`Source analysis:`, sourceAnalysis)
+      console.warn(`Source analysis:`, sourceAnalysis)
 
       let totalImported = 0
       let totalErrors: ImportError[] = []
@@ -1709,7 +1724,7 @@ ipcMain.handle(
 
       // Handle different source types
       if (sourceAnalysis.sourceType === "dji_camera") {
-        console.log("Detected DJI camera source, using specialized import strategy")
+        console.warn("Detected DJI camera source, using specialized import strategy")
 
         // Pre-calculate grand total for progress reporting
         let djiFilesToImport = 0
@@ -1744,13 +1759,13 @@ ipcMain.handle(
         }
 
         const grandTotal = djiFilesToImport + panoramaFoldersToImport
-        console.log(
+        console.warn(
           `Grand total items to import: ${grandTotal} (${djiFilesToImport} DJI files, ${panoramaFoldersToImport} panorama folders)`
         )
 
         // Import DJI files (if any DJI folders exist)
         if (sourceAnalysis.djiFolders.length > 0 && djiFilesToImport > 0) {
-          console.log(`Importing DJI files from folders: ${sourceAnalysis.djiFolders.join(", ")}`)
+          console.warn(`Importing DJI files from folders: ${sourceAnalysis.djiFolders.join(", ")}`)
           const djiResult = await importDjiFiles(
             sourceAnalysis.dcimPath || sourcePath,
             destinationPath,
@@ -1769,7 +1784,7 @@ ipcMain.handle(
 
         // Import panorama folders (if any exist)
         if (sourceAnalysis.panoramaFolders.length > 0 && panoramaFoldersToImport > 0) {
-          console.log(`Importing panorama folders: ${sourceAnalysis.panoramaFolders.join(", ")}`)
+          console.warn(`Importing panorama folders: ${sourceAnalysis.panoramaFolders.join(", ")}`)
           const panoramaResult = await importPanoramaFolders(
             path.join(sourceAnalysis.dcimPath || sourcePath, "PANORAMA"),
             destinationPath,
@@ -1791,7 +1806,7 @@ ipcMain.handle(
         }
       } else {
         // Standard DCIM import - fall back to original logic
-        console.log("Using standard DCIM import strategy")
+        console.warn("Using standard DCIM import strategy")
 
         // Check cache first to avoid redundant re-analysis
         let analysis: AnalyzeResult
@@ -1799,10 +1814,10 @@ ipcMain.handle(
         const cached = analysisCache.get(cacheKey)
 
         if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-          console.log(`Using cached analysis for import: ${sourcePath}`)
+          console.warn(`Using cached analysis for import: ${sourcePath}`)
           analysis = cached.result
         } else {
-          console.log(
+          console.warn(
             `Cache expired or not found, performing fresh analysis for import: ${sourcePath}`
           )
           analysis = await analyzeSourceDirectory(sourcePath)
@@ -1860,8 +1875,8 @@ ipcMain.handle(
             continue // Skip this date group
           }
 
-          // Copy files with optimized concurrency for better performance
-          await mapLimit(files, 8, async (file) => {
+          // Copy files sequentially for better progress tracking
+          await mapLimit(files, 1, async (file) => {
             try {
               const targetDir = file.type === "image" ? imagesDir : videosDir
               let targetPath = path.join(targetDir, file.name)
