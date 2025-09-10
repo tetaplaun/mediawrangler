@@ -444,16 +444,29 @@ async function getMediaInfo(filePath: string, ext: string | null): Promise<Media
   }
 
   try {
+    let mediaInfo: MediaInfo | undefined
+
     if (isVideoFile(ext)) {
-      return await getVideoInfo(filePath)
+      // Add timeout to video processing (longer for large files)
+      const videoPromise = getVideoInfo(filePath)
+      const timeoutPromise = new Promise<undefined>((resolve) => {
+        setTimeout(() => resolve(undefined), 60000) // 60 second timeout for videos (for very large files)
+      })
+      mediaInfo = await Promise.race([videoPromise, timeoutPromise])
     } else if (isImageFile(ext)) {
-      return await getImageInfo(filePath)
+      // Add timeout to image processing
+      const imagePromise = getImageInfo(filePath)
+      const timeoutPromise = new Promise<undefined>((resolve) => {
+        setTimeout(() => resolve(undefined), 5000) // 5 second timeout for images
+      })
+      mediaInfo = await Promise.race([imagePromise, timeoutPromise])
     }
+
+    return mediaInfo
   } catch (err) {
     console.error("Error getting media info:", err)
+    return undefined
   }
-
-  return undefined
 }
 
 // ------ Filesystem IPC ------
@@ -811,17 +824,29 @@ async function analyzeSourceDirectory(
   let scannedFiles = 0
   let scannedDirs = 0
 
-  async function scanDirectory(dirPath: string): Promise<void> {
+  // Add timeout to prevent infinite hanging
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Analysis timeout after 15 minutes")), 15 * 60 * 1000)
+  })
+
+  async function scanDirectory(dirPath: string, depth = 0): Promise<void> {
+    // Prevent infinite recursion
+    if (depth > 50) {
+      console.warn(`Maximum directory depth reached at: ${dirPath}`)
+      return
+    }
+
     try {
       const dirents = await fsp.readdir(dirPath, { withFileTypes: true })
 
-      await mapLimit(dirents, 20, async (dirent) => {
+      await mapLimit(dirents, 5, async (dirent) => {
         const fullPath = path.join(dirPath, dirent.name)
 
         if (dirent.isDirectory()) {
           scannedDirs++
-          // Send progress update for directory scanning
-          if (event) {
+
+          // Send progress update less frequently to avoid overwhelming the UI
+          if (event && scannedDirs % 5 === 0) {
             event.sender.send("analyze-progress", {
               type: "scanning",
               scannedFiles,
@@ -830,50 +855,56 @@ async function analyzeSourceDirectory(
               currentPath: fullPath,
             })
           }
-          await scanDirectory(fullPath)
+
+          await scanDirectory(fullPath, depth + 1)
         } else if (dirent.isFile()) {
           scannedFiles++
           const ext = path.extname(dirent.name).replace(/^\./, "").toLowerCase()
 
           if (isMediaFile(ext)) {
-            const stats = await fsp.stat(fullPath)
-            const mediaInfo = await getMediaInfo(fullPath, ext)
+            try {
+              const stats = await fsp.stat(fullPath)
+              const mediaInfo = await getMediaInfo(fullPath, ext)
 
-            // Determine the date to use for grouping
-            let dateStr: string
-            if (mediaInfo?.encodedDate) {
-              dateStr = new Date(mediaInfo.encodedDate).toISOString().split("T")[0]
-            } else {
-              // Fallback to file modification date
-              dateStr = new Date(stats.mtime).toISOString().split("T")[0]
-            }
+              // Determine the date to use for grouping
+              let dateStr: string
+              if (mediaInfo?.encodedDate) {
+                dateStr = new Date(mediaInfo.encodedDate).toISOString().split("T")[0]
+              } else {
+                // Fallback to file modification date
+                dateStr = new Date(stats.mtime).toISOString().split("T")[0]
+              }
 
-            const fileInfo: MediaFileInfo = {
-              path: fullPath,
-              name: dirent.name,
-              type: isImageFile(ext) ? "image" : "video",
-              size: stats.size,
-              date: dateStr,
-              encodedDate: mediaInfo?.encodedDate,
-              modifiedMs: stats.mtimeMs,
-            }
+              const fileInfo: MediaFileInfo = {
+                path: fullPath,
+                name: dirent.name,
+                type: isImageFile(ext) ? "image" : "video",
+                size: stats.size,
+                date: dateStr,
+                encodedDate: mediaInfo?.encodedDate,
+                modifiedMs: stats.mtimeMs,
+              }
 
-            if (!filesByDate[dateStr]) {
-              filesByDate[dateStr] = []
-            }
-            filesByDate[dateStr].push(fileInfo)
-            totalFiles++
-            totalSize += stats.size
+              if (!filesByDate[dateStr]) {
+                filesByDate[dateStr] = []
+              }
+              filesByDate[dateStr].push(fileInfo)
+              totalFiles++
+              totalSize += stats.size
 
-            // Send progress update for found media files (less frequent for better performance)
-            if (event && totalFiles % 25 === 0) {
-              event.sender.send("analyze-progress", {
-                type: "scanning",
-                scannedFiles,
-                scannedDirs,
-                foundMediaFiles: totalFiles,
-                currentPath: fullPath,
-              })
+              // Send progress update for found media files (less frequent)
+              if (event && totalFiles % 10 === 0) {
+                event.sender.send("analyze-progress", {
+                  type: "scanning",
+                  scannedFiles,
+                  scannedDirs,
+                  foundMediaFiles: totalFiles,
+                  currentPath: fullPath,
+                })
+              }
+            } catch (fileError) {
+              console.error(`Error processing file ${fullPath}:`, fileError)
+              // Continue processing other files
             }
           }
         }
@@ -883,17 +914,43 @@ async function analyzeSourceDirectory(
     }
   }
 
-  await scanDirectory(sourcePath)
+  console.log(`Starting analysis of: ${sourcePath}`)
 
-  // Send final progress update
-  if (event) {
-    event.sender.send("analyze-progress", {
-      type: "complete",
-      scannedFiles,
-      scannedDirs,
-      foundMediaFiles: totalFiles,
-      currentPath: sourcePath,
-    })
+  try {
+    await Promise.race([scanDirectory(sourcePath), timeoutPromise])
+
+    console.log(
+      `Analysis completed: ${totalFiles} media files found, ${scannedDirs} directories scanned`
+    )
+
+    // Send final progress update
+    if (event) {
+      event.sender.send("analyze-progress", {
+        type: "complete",
+        scannedFiles,
+        scannedDirs,
+        foundMediaFiles: totalFiles,
+        currentPath: sourcePath,
+      })
+    }
+  } catch (error) {
+    console.error("Analysis failed:", error)
+
+    // Send error progress update
+    if (event) {
+      event.sender.send("analyze-progress", {
+        type: "complete",
+        scannedFiles,
+        scannedDirs,
+        foundMediaFiles: totalFiles,
+        currentPath: sourcePath,
+      })
+    }
+
+    // If it was a timeout, throw the error to be handled by the caller
+    if (error instanceof Error && error.message.includes("timeout")) {
+      throw error
+    }
   }
 
   const dates = Object.keys(filesByDate).sort()
@@ -1039,18 +1096,27 @@ ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath:
     const cached = analysisCache.get(cacheKey)
 
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log(`Using cached analysis for: ${sourcePath}`)
       return { ok: true, data: cached.result }
     }
 
-    // Perform fresh analysis
-    const result = await analyzeSourceDirectory(sourcePath, event)
+    // Perform fresh analysis with timeout (clear cache first to ensure fresh analysis)
+    analysisCache.delete(cacheKey)
+
+    const analysisPromise = analyzeSourceDirectory(sourcePath, event)
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Analysis timeout")), 20 * 60 * 1000) // 20 minute timeout
+    })
+
+    const result = await Promise.race([analysisPromise, timeoutPromise])
 
     // Cache the result
     analysisCache.set(cacheKey, { result, timestamp: Date.now() })
 
     return { ok: true, data: result }
   } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+    console.error("Analysis IPC handler error:", error)
+    return { ok: false, error: error?.message || "Analysis failed" }
   }
 })
 
@@ -1064,7 +1130,20 @@ ipcMain.handle(
     createDateFolders: boolean = false
   ) => {
     try {
-      const analysis = await analyzeSourceDirectory(sourcePath)
+      // Check cache first to avoid redundant re-analysis
+      let analysis: AnalyzeResult
+      const cacheKey = sourcePath
+      const cached = analysisCache.get(cacheKey)
+      
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        console.log(`Using cached analysis for import: ${sourcePath}`)
+        analysis = cached.result
+      } else {
+        console.log(`Cache expired or not found, performing fresh analysis for import: ${sourcePath}`)
+        analysis = await analyzeSourceDirectory(sourcePath)
+        // Update cache with fresh analysis
+        analysisCache.set(cacheKey, { result: analysis, timestamp: Date.now() })
+      }
 
       // Filter files by date if specified
       let filesToImport: MediaFileInfo[] = []

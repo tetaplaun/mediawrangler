@@ -43,16 +43,6 @@ interface DetailedImportResult {
   warnings: string[]
 }
 
-interface ImportTemplate {
-  id: string
-  name: string
-  sourcePath: string
-  destinationPath: string
-  createDateFolders: boolean
-  selectedDate?: string
-  createdAt: number
-}
-
 interface ImportHistory {
   id: string
   templateName?: string
@@ -94,12 +84,8 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
     destination: false,
   })
   const [retryingErrors, setRetryingErrors] = useState<Set<string>>(new Set())
-  const [templates, setTemplates] = useState<ImportTemplate[]>([])
   const [importHistory, setImportHistory] = useState<ImportHistory[]>([])
-  const [showTemplates, setShowTemplates] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [templateName, setTemplateName] = useState("")
-  const [savingTemplate, setSavingTemplate] = useState(false)
 
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent, type: "source" | "destination") => {
@@ -145,10 +131,7 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
       setError("")
       setDragOver({ source: false, destination: false })
       setRetryingErrors(new Set())
-      setShowTemplates(false)
       setShowHistory(false)
-      setTemplateName("")
-      setSavingTemplate(false)
     }
   }, [isOpen])
 
@@ -367,62 +350,6 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
     }
   }
 
-  const handleSaveTemplate = async () => {
-    if (!sourcePath || !destinationPath || !templateName.trim()) return
-
-    setSavingTemplate(true)
-    try {
-      const template: ImportTemplate = {
-        id: Date.now().toString(),
-        name: templateName.trim(),
-        sourcePath,
-        destinationPath,
-        createDateFolders,
-        selectedDate,
-        createdAt: Date.now(),
-      }
-
-      const updatedTemplates = [...templates, template]
-      setTemplates(updatedTemplates)
-
-      // Save to localStorage (in a real app, this would be saved to a database)
-      if (typeof window !== "undefined" && window.localStorage) {
-        window.localStorage.setItem("importTemplates", JSON.stringify(updatedTemplates))
-      }
-
-      setTemplateName("")
-      setError("✓ Template saved successfully!")
-      if (typeof window !== "undefined") {
-        window.setTimeout(() => setError(""), 3000)
-      }
-    } catch (err: unknown) {
-      setError(`Failed to save template: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setSavingTemplate(false)
-    }
-  }
-
-  const handleLoadTemplate = (template: ImportTemplate) => {
-    setSourcePath(template.sourcePath)
-    setDestinationPath(template.destinationPath)
-    setCreateDateFolders(template.createDateFolders)
-    setSelectedDate(template.selectedDate || "")
-    setAnalysisResult(null)
-    setShowTemplates(false)
-    setError("✓ Template loaded successfully!")
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => setError(""), 3000)
-    }
-  }
-
-  const handleDeleteTemplate = (templateId: string) => {
-    const updatedTemplates = templates.filter((t) => t.id !== templateId)
-    setTemplates(updatedTemplates)
-    if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem("importTemplates", JSON.stringify(updatedTemplates))
-    }
-  }
-
   const saveImportHistory = (results: DetailedImportResult) => {
     const historyEntry: ImportHistory = {
       id: Date.now().toString(),
@@ -441,22 +368,17 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
     }
   }
 
-  // Load templates and history on mount
+  // Load history on mount
   useEffect(() => {
     try {
       if (typeof window !== "undefined" && window.localStorage) {
-        const savedTemplates = window.localStorage.getItem("importTemplates")
-        if (savedTemplates) {
-          setTemplates(JSON.parse(savedTemplates))
-        }
-
         const savedHistory = window.localStorage.getItem("importHistory")
         if (savedHistory) {
           setImportHistory(JSON.parse(savedHistory))
         }
       }
     } catch (err) {
-      console.error("Failed to load templates/history:", err)
+      console.error("Failed to load history:", err)
     }
   }, [])
 
@@ -472,43 +394,30 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
           <div>
             <h2 className="text-2xl font-bold text-white">Import Media Files</h2>
             <p className="text-neutral-400 text-sm mt-1">
-              Organize and import your photos and videos
+              {importing
+                ? "Importing files... Please wait"
+                : "Organize and import your photos and videos"}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Templates Button */}
-            <button
-              onClick={() => setShowTemplates(!showTemplates)}
-              className="text-neutral-400 hover:text-white p-2 rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-2"
-              disabled={importing}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              Templates
-            </button>
-
-            {/* History Button */}
-            <button
-              onClick={() => setShowHistory(!showHistory)}
-              className="text-neutral-400 hover:text-white p-2 rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-2"
-              disabled={importing}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              History
-            </button>
+            {/* History Button - Hide during import */}
+            {!importing && (
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-neutral-400 hover:text-white p-2 rounded-lg hover:bg-neutral-800 transition-colors flex items-center gap-2"
+                disabled={importing}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                History
+              </button>
+            )}
 
             {/* Close Button */}
             <button
@@ -530,133 +439,141 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
 
         {/* Main Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Source & Destination Selection */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Source Selection */}
-            <div>
-              <label className="block text-sm font-medium mb-3 text-neutral-200">
-                Source Folder
-              </label>
-              <div
-                className={`relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 ${
-                  dragOver.source
-                    ? "border-blue-400 bg-blue-500/10"
-                    : sourcePath
-                      ? "border-green-500/50 bg-green-500/5"
-                      : "border-neutral-600 hover:border-neutral-500"
-                }`}
-                onDragOver={(e) => handleDragOver(e, "source")}
-                onDragLeave={(e) => handleDragLeave(e, "source")}
-                onDrop={(e) => handleDrop(e, "source")}
-              >
-                <div className="text-center">
-                  <div className="mx-auto w-12 h-12 mb-3 text-neutral-400">
-                    <svg
-                      className="w-full h-full"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+          {/* Source & Destination Selection - Hide during import */}
+          {!importing && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Source Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-3 text-neutral-200">
+                  Source Folder
+                </label>
+                <div
+                  className={`relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 ${
+                    dragOver.source
+                      ? "border-blue-400 bg-blue-500/10"
+                      : sourcePath
+                        ? "border-green-500/50 bg-green-500/5"
+                        : "border-neutral-600 hover:border-neutral-500"
+                  }`}
+                  onDragOver={(e) => handleDragOver(e, "source")}
+                  onDragLeave={(e) => handleDragLeave(e, "source")}
+                  onDrop={(e) => handleDrop(e, "source")}
+                >
+                  <div className="text-center">
+                    <div className="mx-auto w-12 h-12 mb-3 text-neutral-400">
+                      <svg
+                        className="w-full h-full"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M8 5a2 2 0 012-2h4a2 2 0 012 2v2H8V5z"
+                        />
+                      </svg>
+                    </div>
+                    <div className="space-y-2">
+                      {sourcePath ? (
+                        <div>
+                          <p className="text-sm text-green-400 font-medium">Source Selected</p>
+                          <p className="text-xs text-neutral-400 truncate max-w-full">
+                            {sourcePath}
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-sm text-neutral-300">
+                            Drop folder here or click browse
+                          </p>
+                          <p className="text-xs text-neutral-500">Supports images and videos</p>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleSelectSource}
+                      className="mt-4 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                      disabled={analyzing || importing}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M8 5a2 2 0 012-2h4a2 2 0 012 2v2H8V5z"
-                      />
-                    </svg>
+                      Browse Folder
+                    </button>
                   </div>
-                  <div className="space-y-2">
-                    {sourcePath ? (
-                      <div>
-                        <p className="text-sm text-green-400 font-medium">Source Selected</p>
-                        <p className="text-xs text-neutral-400 truncate max-w-full">{sourcePath}</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-sm text-neutral-300">Drop folder here or click browse</p>
-                        <p className="text-xs text-neutral-500">Supports images and videos</p>
-                      </div>
-                    )}
+                </div>
+              </div>
+
+              {/* Destination Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-3 text-neutral-200">
+                  Destination Folder
+                </label>
+                <div
+                  className={`relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 ${
+                    dragOver.destination
+                      ? "border-blue-400 bg-blue-500/10"
+                      : destinationPath
+                        ? "border-green-500/50 bg-green-500/5"
+                        : "border-neutral-600 hover:border-neutral-500"
+                  }`}
+                  onDragOver={(e) => handleDragOver(e, "destination")}
+                  onDragLeave={(e) => handleDragLeave(e, "destination")}
+                  onDrop={(e) => handleDrop(e, "destination")}
+                >
+                  <div className="text-center">
+                    <div className="mx-auto w-12 h-12 mb-3 text-neutral-400">
+                      <svg
+                        className="w-full h-full"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                    </div>
+                    <div className="space-y-2">
+                      {destinationPath ? (
+                        <div>
+                          <p className="text-sm text-green-400 font-medium">Destination Selected</p>
+                          <p className="text-xs text-neutral-400 truncate max-w-full">
+                            {destinationPath}
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-sm text-neutral-300">
+                            Drop folder here or click browse
+                          </p>
+                          <p className="text-xs text-neutral-500">Where files will be imported</p>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleSelectDestination}
+                      className="mt-4 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                      disabled={analyzing || importing}
+                    >
+                      Browse Folder
+                    </button>
                   </div>
-                  <button
-                    onClick={handleSelectSource}
-                    className="mt-4 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                    disabled={analyzing || importing}
-                  >
-                    Browse Folder
-                  </button>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Destination Selection */}
-            <div>
-              <label className="block text-sm font-medium mb-3 text-neutral-200">
-                Destination Folder
-              </label>
-              <div
-                className={`relative border-2 border-dashed rounded-xl p-6 transition-all duration-200 ${
-                  dragOver.destination
-                    ? "border-blue-400 bg-blue-500/10"
-                    : destinationPath
-                      ? "border-green-500/50 bg-green-500/5"
-                      : "border-neutral-600 hover:border-neutral-500"
-                }`}
-                onDragOver={(e) => handleDragOver(e, "destination")}
-                onDragLeave={(e) => handleDragLeave(e, "destination")}
-                onDrop={(e) => handleDrop(e, "destination")}
-              >
-                <div className="text-center">
-                  <div className="mx-auto w-12 h-12 mb-3 text-neutral-400">
-                    <svg
-                      className="w-full h-full"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                  </div>
-                  <div className="space-y-2">
-                    {destinationPath ? (
-                      <div>
-                        <p className="text-sm text-green-400 font-medium">Destination Selected</p>
-                        <p className="text-xs text-neutral-400 truncate max-w-full">
-                          {destinationPath}
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-sm text-neutral-300">Drop folder here or click browse</p>
-                        <p className="text-xs text-neutral-500">Where files will be imported</p>
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={handleSelectDestination}
-                    className="mt-4 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                    disabled={analyzing || importing}
-                  >
-                    Browse Folder
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Analyze Section */}
-          {sourcePath && !analysisResult && (
+          {/* Analyze Section - Hide during import */}
+          {!importing && sourcePath && !analysisResult && (
             <div className="bg-neutral-800/50 rounded-xl p-6 border border-neutral-700">
               <div className="text-center">
                 <h3 className="text-lg font-medium text-white mb-2">Ready to Analyze</h3>
@@ -753,8 +670,8 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
             </div>
           )}
 
-          {/* Analysis Results */}
-          {analysisResult && (
+          {/* Analysis Results - Hide during import */}
+          {!importing && analysisResult && (
             <div className="space-y-6">
               {/* Results Overview */}
               <div className="bg-gradient-to-br from-neutral-800/50 to-neutral-900/50 rounded-xl p-6 border border-neutral-700">
@@ -1120,101 +1037,8 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
             </div>
           )}
 
-          {/* Templates Panel */}
-          {showTemplates && (
-            <div className="bg-neutral-800/50 rounded-xl p-6 border border-neutral-700">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                  Import Templates
-                </h3>
-                <button
-                  onClick={() => setShowTemplates(false)}
-                  className="text-neutral-400 hover:text-white"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Save New Template */}
-              <div className="mb-4 p-4 bg-neutral-700/30 rounded-lg">
-                <h4 className="text-sm font-medium text-white mb-2">Save Current Configuration</h4>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="Template name..."
-                    className="flex-1 px-3 py-2 bg-neutral-600 rounded border border-neutral-500 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={savingTemplate}
-                  />
-                  <button
-                    onClick={handleSaveTemplate}
-                    disabled={
-                      !templateName.trim() || !sourcePath || !destinationPath || savingTemplate
-                    }
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-neutral-600 rounded text-sm font-medium transition-colors disabled:cursor-not-allowed"
-                  >
-                    {savingTemplate ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Saved Templates */}
-              <div className="space-y-2">
-                {templates.length === 0 ? (
-                  <p className="text-neutral-400 text-sm text-center py-4">
-                    No templates saved yet
-                  </p>
-                ) : (
-                  templates.map((template) => (
-                    <div
-                      key={template.id}
-                      className="flex items-center justify-between p-3 bg-neutral-700/30 rounded-lg"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-medium text-white truncate">{template.name}</h4>
-                        <p className="text-xs text-neutral-400 truncate">
-                          {template.sourcePath} → {template.destinationPath}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleLoadTemplate(template)}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors"
-                        >
-                          Load
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTemplate(template.id)}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs font-medium transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* History Panel */}
-          {showHistory && (
+          {/* History Panel - Hide during import */}
+          {!importing && showHistory && (
             <div className="bg-neutral-800/50 rounded-xl p-6 border border-neutral-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
