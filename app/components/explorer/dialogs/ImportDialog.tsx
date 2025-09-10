@@ -1198,7 +1198,7 @@ export function ImportDialog({
 
               {/* Individual File Progress - Always visible during import */}
               <div className="mt-6 pt-6 border-t border-neutral-600/50">
-                <FileProgressList maxVisible={5} showCompleted={true} />
+                <FileProgressList maxVisible={5} showCompleted={false} />
               </div>
             </div>
           )}
