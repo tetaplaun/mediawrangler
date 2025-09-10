@@ -33,6 +33,11 @@ export default [
         require: "readonly",
         global: "readonly",
         Promise: "readonly",
+        HTMLDivElement: "readonly",
+        HTMLInputElement: "readonly",
+        MouseEvent: "readonly",
+        Node: "readonly",
+        alert: "readonly",
       },
     },
     plugins: {

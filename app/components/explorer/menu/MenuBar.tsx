@@ -2,13 +2,12 @@
 
 import { useState, useRef, useEffect } from "react"
 import useExplorerStore, {
-  useCurrentPath,
   useNavigateTo,
   useRefresh,
 } from "../store/explorerStore"
 
 interface MenuItem {
-  label: string
+  label?: string
   action?: () => void
   shortcut?: string
   divider?: boolean
@@ -22,10 +21,8 @@ interface Menu {
 
 export function MenuBar() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
-  const [hoveredMenu, setHoveredMenu] = useState<string | null>(null)
+  const [_hoveredMenu, setHoveredMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  
-  const currentPath = useCurrentPath()
   const navigateTo = useNavigateTo()
   const refresh = useRefresh()
   const setViewMode = useExplorerStore((state) => state.setViewMode)
@@ -34,11 +31,15 @@ export function MenuBar() {
   const setShowHiddenFiles = useExplorerStore((state) => state.setShowHiddenFiles)
 
   const handleNewWindow = () => {
-    window.electronAPI?.openNewWindow?.()
+    // Open new window functionality - to be implemented
+    // For now, just open a new tab/window with the same URL
+    if (typeof window !== 'undefined') {
+      window.open(window.location.href, '_blank')
+    }
   }
 
   const handleOpenFolder = async () => {
-    const result = await window.electronAPI.selectFolder()
+    const result = await window.electronAPI.fs.selectFolder()
     if (result.ok && result.path) {
       navigateTo(result.path)
     }
@@ -57,7 +58,9 @@ export function MenuBar() {
   }
 
   const handleAbout = () => {
-    alert("MediaWrangler v0.1.0\nA media file explorer and organizer")
+    if (typeof window !== 'undefined') {
+      window.alert("MediaWrangler v0.1.0\nA media file explorer and organizer")
+    }
   }
 
   const menus: Menu[] = [
@@ -112,8 +115,8 @@ export function MenuBar() {
   ]
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+    const handleClickOutside = (event: globalThis.MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as globalThis.Node)) {
         setActiveMenu(null)
       }
     }

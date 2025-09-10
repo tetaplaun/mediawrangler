@@ -9,7 +9,8 @@
       "Bash(dir dist)",
       "Bash(dir:*)",
       "Bash(\"release\\win-unpacked\\MediaWrangler.exe\")",
-      "Bash(cmd /c \"dir release\\win-unpacked\\*.exe\")"
+      "Bash(cmd /c \"dir release\\win-unpacked\\*.exe\")",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []
