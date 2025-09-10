@@ -52,6 +52,7 @@ declare global {
           data?: Array<{ path: string; mediaInfo?: any }>
           error?: string
         }>
+        updateFileDate: (filePath: string, dateString: string) => Promise<{ ok: boolean; error?: string }>
         createFolder: (folderPath: string) => Promise<{ ok: boolean; error?: string }>
         deleteItem: (itemPath: string) => Promise<{ ok: boolean; error?: string }>
       }

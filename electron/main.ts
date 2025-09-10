@@ -722,6 +722,22 @@ ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths:
   }
 })
 
+ipcMain.handle("fs:updateFileDate", async (_e: IpcMainInvokeEvent, filePath: string, dateString: string) => {
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) {
+      return { ok: false, error: "Invalid date format" }
+    }
+
+    // Use utimes to update the file's modification time
+    // We set both atime and mtime to the encoded date
+    await fsp.utimes(filePath, date, date)
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
 // Simple concurrency limiter
 async function mapLimit<T, R>(
   items: T[],

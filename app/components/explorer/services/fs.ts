@@ -43,11 +43,14 @@ export const fsService = {
   getMediaInfo(filePath: string): Promise<{ ok: boolean; data?: MediaInfo; error?: string }> {
     return window.electronAPI.fs.getMediaInfo(filePath)
   },
-  getMediaInfoBatch(filePaths: string[]): Promise<{ 
-    ok: boolean; 
-    data?: Array<{ path: string; mediaInfo?: MediaInfo }>; 
-    error?: string 
+  getMediaInfoBatch(filePaths: string[]): Promise<{
+    ok: boolean;
+    data?: Array<{ path: string; mediaInfo?: MediaInfo }>;
+    error?: string
   }> {
     return window.electronAPI.fs.getMediaInfoBatch(filePaths)
+  },
+  updateFileDate(filePath: string, dateString: string): Promise<{ ok: boolean; error?: string }> {
+    return window.electronAPI.fs.updateFileDate(filePath, dateString)
   },
 }

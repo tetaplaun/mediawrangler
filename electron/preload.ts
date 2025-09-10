@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getMediaInfo: (filePath: string) => ipcRenderer.invoke("fs:getMediaInfo", filePath),
     getMediaInfoBatch: (filePaths: string[]) =>
       ipcRenderer.invoke("fs:getMediaInfoBatch", filePaths),
+    updateFileDate: (filePath: string, dateString: string) =>
+      ipcRenderer.invoke("fs:updateFileDate", filePath, dateString),
     createFolder: (folderPath: string) => ipcRenderer.invoke("fs:createFolder", folderPath),
     deleteItem: (itemPath: string) => ipcRenderer.invoke("fs:deleteItem", itemPath),
   },

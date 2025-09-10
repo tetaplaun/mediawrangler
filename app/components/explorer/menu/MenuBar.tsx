@@ -116,6 +116,78 @@ export function MenuBar() {
     setSelectedEntries(filesWithDifferentDate)
   }
 
+  const handleDeselectAll = () => {
+    setSelectedEntries([])
+  }
+
+  const handleCorrectSelectedFileDates = async () => {
+    if (selectedEntries.length === 0) {
+      if (typeof window !== "undefined") {
+        window.alert("No files selected. Please select files first.")
+      }
+      return
+    }
+
+    // Filter selected entries that have different dates
+    const filesToCorrect = selectedEntries.filter((entry) =>
+      areDatesDifferent(entry.mediaInfo?.encodedDate, entry.modifiedMs)
+    )
+
+    if (filesToCorrect.length === 0) {
+      if (typeof window !== "undefined") {
+        window.alert("No selected files have different dates to correct.")
+      }
+      return
+    }
+
+    // Confirm the operation
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        `Correct file dates for ${filesToCorrect.length} selected file(s)?\n\nThis will update the file modification dates to match the encoded dates from the media metadata.`
+      )
+
+    if (!confirmed) return
+
+    let successCount = 0
+    let errorCount = 0
+
+    // Process each file
+    for (const entry of filesToCorrect) {
+      if (entry.mediaInfo?.encodedDate) {
+        try {
+          const result = await window.electronAPI.fs.updateFileDate(
+            entry.path,
+            entry.mediaInfo.encodedDate
+          )
+          if (result.ok) {
+            successCount++
+          } else {
+            console.error(`Failed to update date for ${entry.path}:`, result.error)
+            errorCount++
+          }
+        } catch (error) {
+          console.error(`Error updating date for ${entry.path}:`, error)
+          errorCount++
+        }
+      }
+    }
+
+    // Refresh the current directory to show updated dates
+    refresh()
+
+    // Show results
+    if (typeof window !== "undefined") {
+      if (errorCount === 0) {
+        window.alert(`Successfully corrected dates for ${successCount} file(s).`)
+      } else {
+        window.alert(
+          `Corrected dates for ${successCount} file(s).\nFailed to correct ${errorCount} file(s). Check console for details.`
+        )
+      }
+    }
+  }
+
   const menus: Menu[] = [
     {
       label: "File",
@@ -134,8 +206,27 @@ export function MenuBar() {
         { label: "Paste", action: () => {}, shortcut: "Ctrl+V", disabled: true },
         { divider: true },
         { label: "Select All", action: handleSelectAll, shortcut: "Ctrl+A" },
-        { label: "Invert Selection", action: handleInvertSelection },
-        { label: "Select All Files with Different Date", action: handleSelectAllWithDifferentDate },
+        {
+          label: "Deselect All",
+          action: handleDeselectAll,
+          disabled: selectedEntries.length === 0,
+        },
+        {
+          label: "Invert Selection",
+          action: handleInvertSelection,
+          disabled: selectedEntries.length === 0,
+        },
+        {
+          label: "Select All Files with Different Date",
+          action: handleSelectAllWithDifferentDate,
+          disabled: entries.length === 0,
+        },
+        { divider: true },
+        {
+          label: "Correct Selected File Dates",
+          action: handleCorrectSelectedFileDates,
+          disabled: selectedEntries.length === 0,
+        },
       ],
     },
     {
