@@ -35,11 +35,11 @@ function EmptyProgressState({ hasStartedImport }: { hasStartedImport: boolean })
         />
       </svg>
       <p className="text-sm text-neutral-400 mb-1">
-        {hasStartedImport ? "Waiting for files..." : "Preparing to import files..."}
+        {hasStartedImport ? "All active files completed" : "Preparing to import files..."}
       </p>
       <p className="text-xs text-neutral-500">
         {hasStartedImport
-          ? "All files have been processed"
+          ? "No files currently being copied"
           : "Progress will appear here as files are processed"}
       </p>
     </div>
@@ -141,42 +141,39 @@ export function FileProgressList({ maxVisible = 10, showCompleted = true }: File
 
       {/* Progress Items or Empty State */}
       <div className="space-y-2 min-h-[120px] max-h-96 overflow-y-auto">
-        {sortedProgress.length === 0 ? (
-          <EmptyProgressState hasStartedImport={hasStartedImport} />
-        ) : (
-          <>
-            {displayProgress.map((progress, index) => (
-              <div
-                key={progress.fileName}
-                className="animate-in fade-in slide-in-from-bottom-2 duration-300"
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                <FileProgressItem
-                  progress={progress}
-                  onRetry={() => handleRetry(progress.fileName)}
-                  onCancel={() => handleCancel(progress.fileName)}
-                />
-              </div>
-            ))}
+        {displayProgress.map((progress, index) => (
+          <div
+            key={progress.fileName}
+            className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+            style={{ animationDelay: `${index * 50}ms` }}
+          >
+            <FileProgressItem
+              progress={progress}
+              onRetry={() => handleRetry(progress.fileName)}
+              onCancel={() => handleCancel(progress.fileName)}
+            />
+          </div>
+        ))}
 
-            {!expanded && hasMore && (
-              <div className="text-center py-2">
-                <button
-                  onClick={() => setExpanded(true)}
-                  className="text-xs text-neutral-400 hover:text-white transition-colors"
-                >
-                  + {sortedProgress.length - maxVisible} more files...
-                </button>
-              </div>
-            )}
-          </>
+        {!expanded && hasMore && (
+          <div className="text-center py-2">
+            <button
+              onClick={() => setExpanded(true)}
+              className="text-xs text-neutral-400 hover:text-white transition-colors"
+            >
+              + {sortedProgress.length - maxVisible} more files...
+            </button>
+          </div>
         )}
+
+        {/* Show empty state when no files are being processed */}
+        {sortedProgress.length === 0 && <EmptyProgressState hasStartedImport={hasStartedImport} />}
       </div>
 
       {/* Summary - Always visible */}
       <div className="flex items-center justify-between text-xs text-neutral-400 border-t border-neutral-600/50 pt-2 min-h-[20px] transition-all duration-200">
         <div>Active: {sortedProgress.filter((p) => p.status === "copying").length}</div>
-        <div>Completed: {sortedProgress.filter((p) => p.status === "completed").length}</div>
+        <div>Shown: {sortedProgress.length}</div>
         <div>Failed: {sortedProgress.filter((p) => p.status === "failed").length}</div>
       </div>
     </div>
