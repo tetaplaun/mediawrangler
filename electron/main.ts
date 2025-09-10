@@ -16,6 +16,10 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path)
 const fsp = fs.promises
 const execAsync = promisify(exec)
 
+// Simple in-memory cache for analysis results
+const analysisCache = new Map<string, { result: AnalyzeResult; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 interface Drive {
   name: string
   path: string
@@ -729,8 +733,8 @@ ipcMain.handle("fs:deleteItem", async (_e: IpcMainInvokeEvent, itemPath: string)
 
 ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths: string[]) => {
   try {
-    // Process media files with higher concurrency for better performance
-    const results = await mapLimit(filePaths, 50, async (filePath) => {
+    // Process media files with optimized concurrency for better performance
+    const results = await mapLimit(filePaths, 100, async (filePath) => {
       try {
         const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
         if (!isMediaFile(ext)) {
@@ -745,6 +749,16 @@ ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths:
     })
 
     return { ok: true, data: results }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+// Clear analysis cache
+ipcMain.handle("fs:clearAnalysisCache", async () => {
+  try {
+    analysisCache.clear()
+    return { ok: true }
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }
   }
@@ -787,7 +801,10 @@ interface AnalyzeResult {
   dates: string[]
 }
 
-async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeEvent): Promise<AnalyzeResult> {
+async function analyzeSourceDirectory(
+  sourcePath: string,
+  event?: IpcMainInvokeEvent
+): Promise<AnalyzeResult> {
   const filesByDate: Record<string, MediaFileInfo[]> = {}
   let totalFiles = 0
   let totalSize = 0
@@ -797,10 +814,10 @@ async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeE
   async function scanDirectory(dirPath: string): Promise<void> {
     try {
       const dirents = await fsp.readdir(dirPath, { withFileTypes: true })
-      
-      await mapLimit(dirents, 10, async (dirent) => {
+
+      await mapLimit(dirents, 20, async (dirent) => {
         const fullPath = path.join(dirPath, dirent.name)
-        
+
         if (dirent.isDirectory()) {
           scannedDirs++
           // Send progress update for directory scanning
@@ -810,27 +827,27 @@ async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeE
               scannedFiles,
               scannedDirs,
               foundMediaFiles: totalFiles,
-              currentPath: fullPath
+              currentPath: fullPath,
             })
           }
           await scanDirectory(fullPath)
         } else if (dirent.isFile()) {
           scannedFiles++
           const ext = path.extname(dirent.name).replace(/^\./, "").toLowerCase()
-          
+
           if (isMediaFile(ext)) {
             const stats = await fsp.stat(fullPath)
             const mediaInfo = await getMediaInfo(fullPath, ext)
-            
+
             // Determine the date to use for grouping
             let dateStr: string
             if (mediaInfo?.encodedDate) {
-              dateStr = new Date(mediaInfo.encodedDate).toISOString().split('T')[0]
+              dateStr = new Date(mediaInfo.encodedDate).toISOString().split("T")[0]
             } else {
               // Fallback to file modification date
-              dateStr = new Date(stats.mtime).toISOString().split('T')[0]
+              dateStr = new Date(stats.mtime).toISOString().split("T")[0]
             }
-            
+
             const fileInfo: MediaFileInfo = {
               path: fullPath,
               name: dirent.name,
@@ -838,24 +855,24 @@ async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeE
               size: stats.size,
               date: dateStr,
               encodedDate: mediaInfo?.encodedDate,
-              modifiedMs: stats.mtimeMs
+              modifiedMs: stats.mtimeMs,
             }
-            
+
             if (!filesByDate[dateStr]) {
               filesByDate[dateStr] = []
             }
             filesByDate[dateStr].push(fileInfo)
             totalFiles++
             totalSize += stats.size
-            
-            // Send progress update for found media files
-            if (event && totalFiles % 10 === 0) {
+
+            // Send progress update for found media files (less frequent for better performance)
+            if (event && totalFiles % 25 === 0) {
               event.sender.send("analyze-progress", {
                 type: "scanning",
                 scannedFiles,
                 scannedDirs,
                 foundMediaFiles: totalFiles,
-                currentPath: fullPath
+                currentPath: fullPath,
               })
             }
           }
@@ -867,7 +884,7 @@ async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeE
   }
 
   await scanDirectory(sourcePath)
-  
+
   // Send final progress update
   if (event) {
     event.sender.send("analyze-progress", {
@@ -875,17 +892,17 @@ async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeE
       scannedFiles,
       scannedDirs,
       foundMediaFiles: totalFiles,
-      currentPath: sourcePath
+      currentPath: sourcePath,
     })
   }
-  
+
   const dates = Object.keys(filesByDate).sort()
-  
+
   return {
     filesByDate,
     totalFiles,
     totalSize,
-    dates
+    dates,
   }
 }
 
@@ -895,119 +912,331 @@ interface ImportProgress {
   currentFile: string
 }
 
+interface ImportError {
+  file: string
+  error: string
+  type: "permission" | "disk_space" | "file_corrupted" | "path_too_long" | "unknown"
+  canRetry: boolean
+  retryCount: number
+}
+
+interface DetailedImportResult {
+  imported: number
+  total: number
+  errors: ImportError[]
+  skipped: ImportError[]
+  warnings: string[]
+}
+
+function categorizeError(error: unknown, fileName: string): ImportError {
+  const errorMessage = error instanceof Error ? error.message : String(error)
+
+  // Check for specific error types
+  if (
+    errorMessage.includes("EACCES") ||
+    errorMessage.includes("EPERM") ||
+    errorMessage.includes("permission")
+  ) {
+    return {
+      file: fileName,
+      error: errorMessage,
+      type: "permission",
+      canRetry: true,
+      retryCount: 0,
+    }
+  }
+
+  if (
+    errorMessage.includes("ENOSPC") ||
+    errorMessage.includes("disk") ||
+    errorMessage.includes("space")
+  ) {
+    return {
+      file: fileName,
+      error: errorMessage,
+      type: "disk_space",
+      canRetry: false,
+      retryCount: 0,
+    }
+  }
+
+  if (
+    errorMessage.includes("ENAMETOOLONG") ||
+    errorMessage.includes("path") ||
+    errorMessage.includes("length")
+  ) {
+    return {
+      file: fileName,
+      error: errorMessage,
+      type: "path_too_long",
+      canRetry: false,
+      retryCount: 0,
+    }
+  }
+
+  if (
+    errorMessage.includes("corrupt") ||
+    errorMessage.includes("invalid") ||
+    errorMessage.includes("format")
+  ) {
+    return {
+      file: fileName,
+      error: errorMessage,
+      type: "file_corrupted",
+      canRetry: true,
+      retryCount: 0,
+    }
+  }
+
+  return {
+    file: fileName,
+    error: errorMessage,
+    type: "unknown",
+    canRetry: true,
+    retryCount: 0,
+  }
+}
+
+async function copyFileWithRetry(
+  sourcePath: string,
+  targetPath: string,
+  maxRetries: number = 3
+): Promise<{ success: boolean; error?: ImportError }> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await fsp.copyFile(sourcePath, targetPath)
+
+      // Preserve original file dates
+      const stats = await fsp.stat(sourcePath)
+      await fsp.utimes(targetPath, stats.atime, stats.mtime)
+
+      return { success: true }
+    } catch (error) {
+      const fileName = path.basename(sourcePath)
+      const importError = categorizeError(error, fileName)
+
+      // If this is the last attempt or error is not retryable
+      if (attempt === maxRetries || !importError.canRetry) {
+        importError.retryCount = attempt
+        return { success: false, error: importError }
+      }
+
+      // Wait before retrying (exponential backoff)
+      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000))
+    }
+  }
+
+  return {
+    success: false,
+    error: categorizeError("Max retries exceeded", path.basename(sourcePath)),
+  }
+}
+
 ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath: string) => {
   try {
+    // Check cache first
+    const cacheKey = sourcePath
+    const cached = analysisCache.get(cacheKey)
+
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return { ok: true, data: cached.result }
+    }
+
+    // Perform fresh analysis
     const result = await analyzeSourceDirectory(sourcePath, event)
+
+    // Cache the result
+    analysisCache.set(cacheKey, { result, timestamp: Date.now() })
+
     return { ok: true, data: result }
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }
   }
 })
 
-ipcMain.handle("fs:importMedia", async (
-  event: IpcMainInvokeEvent,
-  sourcePath: string,
-  destinationPath: string,
-  selectedDate?: string,
-  createDateFolders: boolean = false
-) => {
-  try {
-    const analysis = await analyzeSourceDirectory(sourcePath)
-    
-    // Filter files by date if specified
-    let filesToImport: MediaFileInfo[] = []
-    if (selectedDate) {
-      filesToImport = analysis.filesByDate[selectedDate] || []
-    } else {
-      // Import all files
-      Object.values(analysis.filesByDate).forEach(files => {
-        filesToImport.push(...files)
-      })
-    }
-    
-    if (filesToImport.length === 0) {
-      return { ok: false, error: "No files to import" }
-    }
-    
-    let copiedCount = 0
-    const errors: string[] = []
-    
-    // Group files by date for organized copying
-    const filesByDate: Record<string, MediaFileInfo[]> = {}
-    filesToImport.forEach(file => {
-      if (!filesByDate[file.date]) {
-        filesByDate[file.date] = []
-      }
-      filesByDate[file.date].push(file)
-    })
-    
-    for (const [date, files] of Object.entries(filesByDate)) {
-      // Determine directory structure based on createDateFolders option
-      let imagesDir: string
-      let videosDir: string
-      
-      if (createDateFolders) {
-        // Create date-based subdirectories
-        const dateFolder = date // Format: YYYY-MM-DD
-        imagesDir = path.join(destinationPath, dateFolder, "IMAGES")
-        videosDir = path.join(destinationPath, dateFolder, "VIDEOS")
+ipcMain.handle(
+  "fs:importMedia",
+  async (
+    event: IpcMainInvokeEvent,
+    sourcePath: string,
+    destinationPath: string,
+    selectedDate?: string,
+    createDateFolders: boolean = false
+  ) => {
+    try {
+      const analysis = await analyzeSourceDirectory(sourcePath)
+
+      // Filter files by date if specified
+      let filesToImport: MediaFileInfo[] = []
+      if (selectedDate) {
+        filesToImport = analysis.filesByDate[selectedDate] || []
       } else {
-        // Create IMAGES and VIDEOS directly in destination
-        imagesDir = path.join(destinationPath, "IMAGES")
-        videosDir = path.join(destinationPath, "VIDEOS")
+        // Import all files
+        Object.values(analysis.filesByDate).forEach((files) => {
+          filesToImport.push(...files)
+        })
       }
-      
-      // Create directories if they don't exist
-      await fsp.mkdir(imagesDir, { recursive: true })
-      await fsp.mkdir(videosDir, { recursive: true })
-      
-      // Copy files
-      await mapLimit(files, 5, async (file) => {
-        try {
-          const targetDir = file.type === "image" ? imagesDir : videosDir
-          let targetPath = path.join(targetDir, file.name)
-          
-          // Handle duplicates by adding a number suffix
-          let counter = 1
-          while (await fsp.access(targetPath).then(() => true).catch(() => false)) {
-            const ext = path.extname(file.name)
-            const nameWithoutExt = path.basename(file.name, ext)
-            targetPath = path.join(targetDir, `${nameWithoutExt}_${counter}${ext}`)
-            counter++
-          }
-          
-          // Copy the file
-          await fsp.copyFile(file.path, targetPath)
-          
-          // Preserve the original dates
-          const stats = await fsp.stat(file.path)
-          await fsp.utimes(targetPath, stats.atime, stats.mtime)
-          
-          copiedCount++
-          
-          // Send progress update
-          const progress: ImportProgress = {
-            current: copiedCount,
-            total: filesToImport.length,
-            currentFile: file.name
-          }
-          event.sender.send("import-progress", progress)
-        } catch (err: any) {
-          errors.push(`Failed to copy ${file.name}: ${err.message}`)
+
+      if (filesToImport.length === 0) {
+        return { ok: false, error: "No files to import" }
+      }
+
+      let copiedCount = 0
+      const errors: ImportError[] = []
+      const skipped: ImportError[] = []
+      const warnings: string[] = []
+
+      // Group files by date for organized copying
+      const filesByDate: Record<string, MediaFileInfo[]> = {}
+      filesToImport.forEach((file) => {
+        if (!filesByDate[file.date]) {
+          filesByDate[file.date] = []
         }
+        filesByDate[file.date].push(file)
       })
-    }
-    
-    return {
-      ok: true,
-      data: {
+
+      for (const [date, files] of Object.entries(filesByDate)) {
+        // Determine directory structure based on createDateFolders option
+        let imagesDir: string
+        let videosDir: string
+
+        if (createDateFolders) {
+          // Create date-based subdirectories
+          const dateFolder = date // Format: YYYY-MM-DD
+          imagesDir = path.join(destinationPath, dateFolder, "IMAGES")
+          videosDir = path.join(destinationPath, dateFolder, "VIDEOS")
+        } else {
+          // Create IMAGES and VIDEOS directly in destination
+          imagesDir = path.join(destinationPath, "IMAGES")
+          videosDir = path.join(destinationPath, "VIDEOS")
+        }
+
+        // Create directories if they don't exist
+        try {
+          await fsp.mkdir(imagesDir, { recursive: true })
+          await fsp.mkdir(videosDir, { recursive: true })
+        } catch (dirError) {
+          const dirErrorObj = categorizeError(dirError, `Directory creation for ${date}`)
+          errors.push(dirErrorObj)
+          continue // Skip this date group
+        }
+
+        // Copy files with optimized concurrency for better performance
+        await mapLimit(files, 8, async (file) => {
+          try {
+            const targetDir = file.type === "image" ? imagesDir : videosDir
+            let targetPath = path.join(targetDir, file.name)
+
+            // Handle duplicates by adding a number suffix
+            let counter = 1
+            let originalTargetPath = targetPath
+            while (
+              await fsp
+                .access(targetPath)
+                .then(() => true)
+                .catch(() => false)
+            ) {
+              const ext = path.extname(file.name)
+              const nameWithoutExt = path.basename(file.name, ext)
+              targetPath = path.join(targetDir, `${nameWithoutExt}_${counter}${ext}`)
+              counter++
+
+              // Prevent infinite loops
+              if (counter > 100) {
+                skipped.push({
+                  file: file.name,
+                  error: "Too many duplicate files, skipping",
+                  type: "unknown",
+                  canRetry: false,
+                  retryCount: 0,
+                })
+                return
+              }
+            }
+
+            // Check if this is a duplicate (different file with same name)
+            if (targetPath !== originalTargetPath) {
+              warnings.push(`Duplicate filename: ${file.name} → ${path.basename(targetPath)}`)
+            }
+
+            // Copy the file with retry mechanism
+            const copyResult = await copyFileWithRetry(file.path, targetPath)
+
+            if (copyResult.success) {
+              copiedCount++
+
+              // Send progress update
+              const progress: ImportProgress = {
+                current: copiedCount,
+                total: filesToImport.length,
+                currentFile: file.name,
+              }
+              event.sender.send("import-progress", progress)
+            } else if (copyResult.error) {
+              if (copyResult.error.canRetry) {
+                errors.push(copyResult.error)
+              } else {
+                skipped.push(copyResult.error)
+              }
+            }
+          } catch (err: unknown) {
+            const fileName = path.basename(file.path)
+            const importError = categorizeError(err, fileName)
+            if (importError.canRetry) {
+              errors.push(importError)
+            } else {
+              skipped.push(importError)
+            }
+          }
+        })
+      }
+
+      const result: DetailedImportResult = {
         imported: copiedCount,
         total: filesToImport.length,
-        errors: errors.length > 0 ? errors : undefined
+        errors,
+        skipped,
+        warnings,
+      }
+
+      return {
+        ok: true,
+        data: result,
+      }
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+)
+
+// Retry mechanism for individual files
+ipcMain.handle(
+  "fs:copyFileWithRetry",
+  async (
+    _event: IpcMainInvokeEvent,
+    sourcePath: string,
+    targetPath: string,
+    maxRetries: number = 3
+  ) => {
+    try {
+      const result = await copyFileWithRetry(sourcePath, targetPath, maxRetries)
+      return result
+    } catch (error: unknown) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
       }
     }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+  }
+)
+
+// Check if file exists (for duplicate handling)
+ipcMain.handle("fs:access", async (_event: IpcMainInvokeEvent, filePath: string) => {
+  try {
+    await fsp.access(filePath)
+    return true
+  } catch {
+    return false
   }
 })
 

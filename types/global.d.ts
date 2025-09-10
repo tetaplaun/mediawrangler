@@ -70,15 +70,18 @@ declare global {
         analyzeSource: (sourcePath: string) => Promise<{
           ok: boolean
           data?: {
-            filesByDate: Record<string, Array<{
-              path: string
-              name: string
-              type: "image" | "video"
-              size: number
-              date: string
-              encodedDate?: string
-              modifiedMs: number
-            }>>
+            filesByDate: Record<
+              string,
+              Array<{
+                path: string
+                name: string
+                type: "image" | "video"
+                size: number
+                date: string
+                encodedDate?: string
+                modifiedMs: number
+              }>
+            >
             totalFiles: number
             totalSize: number
             dates: string[]
@@ -96,22 +99,39 @@ declare global {
             imported: number
             total: number
             errors?: string[]
+            skipped?: Array<{
+              file: string
+              error: string
+              type: "permission" | "disk_space" | "file_corrupted" | "path_too_long" | "unknown"
+              canRetry: boolean
+              retryCount: number
+            }>
+            warnings?: string[]
           }
           error?: string
         }>
+        access: (filePath: string) => Promise<boolean>
+        copyFileWithRetry: (
+          sourcePath: string,
+          targetPath: string,
+          maxRetries?: number
+        ) => Promise<{
+          success: boolean
+          error?: string
+        }>
       }
-      onImportProgress: (callback: (progress: {
-        current: number
-        total: number
-        currentFile: string
-      }) => void) => () => void
-      onAnalyzeProgress: (callback: (progress: {
-        type: "scanning" | "complete"
-        scannedFiles: number
-        scannedDirs: number
-        foundMediaFiles: number
-        currentPath: string
-      }) => void) => () => void
+      onImportProgress: (
+        callback: (progress: { current: number; total: number; currentFile: string }) => void
+      ) => () => void
+      onAnalyzeProgress: (
+        callback: (progress: {
+          type: "scanning" | "complete"
+          scannedFiles: number
+          scannedDirs: number
+          foundMediaFiles: number
+          currentPath: string
+        }) => void
+      ) => () => void
     }
   }
 }
