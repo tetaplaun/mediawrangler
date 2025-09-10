@@ -66,9 +66,15 @@ interface ImportDialogProps {
   isOpen: boolean
   onClose: () => void
   onImportComplete?: () => void
+  currentPath: string
 }
 
-export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialogProps) {
+export function ImportDialog({
+  isOpen,
+  onClose,
+  onImportComplete,
+  currentPath,
+}: ImportDialogProps) {
   const [sourcePath, setSourcePath] = useState<string>("")
   const [destinationPath, setDestinationPath] = useState<string>("")
   const [selectedDate, setSelectedDate] = useState<string>("")
@@ -132,8 +138,11 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
       setDragOver({ source: false, destination: false })
       setRetryingErrors(new Set())
       setShowHistory(false)
+    } else {
+      // Pre-select current directory as destination when dialog opens
+      setDestinationPath(currentPath)
     }
-  }, [isOpen])
+  }, [isOpen, currentPath])
 
   useEffect(() => {
     // Set up progress listeners

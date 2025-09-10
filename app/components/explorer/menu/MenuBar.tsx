@@ -36,6 +36,7 @@ export function MenuBar() {
   const selectedEntries = useExplorerStore((state) => state.selectedEntries)
   const showImportDialog = useExplorerStore((state) => state.showImportDialog)
   const setShowImportDialog = useExplorerStore((state) => state.setShowImportDialog)
+  const currentPath = useExplorerStore((state) => state.currentPath)
 
   const handleNewWindow = () => {
     // Open new window functionality - to be implemented
@@ -55,11 +56,11 @@ export function MenuBar() {
   const handleExit = () => {
     window.close()
   }
-  
+
   const handleImport = () => {
     setShowImportDialog(true)
   }
-  
+
   const handleImportComplete = () => {
     refresh()
   }
@@ -426,11 +427,12 @@ export function MenuBar() {
           </div>
         ))}
       </div>
-      
+
       <ImportDialog
         isOpen={showImportDialog}
         onClose={() => setShowImportDialog(false)}
         onImportComplete={handleImportComplete}
+        currentPath={currentPath}
       />
     </>
   )
