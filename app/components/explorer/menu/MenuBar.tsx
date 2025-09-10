@@ -1,0 +1,187 @@
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+import useExplorerStore, {
+  useCurrentPath,
+  useNavigateTo,
+  useRefresh,
+} from "../store/explorerStore"
+
+interface MenuItem {
+  label: string
+  action?: () => void
+  shortcut?: string
+  divider?: boolean
+  disabled?: boolean
+}
+
+interface Menu {
+  label: string
+  items: MenuItem[]
+}
+
+export function MenuBar() {
+  const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [hoveredMenu, setHoveredMenu] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  
+  const currentPath = useCurrentPath()
+  const navigateTo = useNavigateTo()
+  const refresh = useRefresh()
+  const setViewMode = useExplorerStore((state) => state.setViewMode)
+  const viewMode = useExplorerStore((state) => state.viewMode)
+  const showHiddenFiles = useExplorerStore((state) => state.showHiddenFiles)
+  const setShowHiddenFiles = useExplorerStore((state) => state.setShowHiddenFiles)
+
+  const handleNewWindow = () => {
+    window.electronAPI?.openNewWindow?.()
+  }
+
+  const handleOpenFolder = async () => {
+    const result = await window.electronAPI.selectFolder()
+    if (result.ok && result.path) {
+      navigateTo(result.path)
+    }
+  }
+
+  const handleExit = () => {
+    window.close()
+  }
+
+  const handleRefresh = () => {
+    refresh()
+  }
+
+  const handleToggleHiddenFiles = () => {
+    setShowHiddenFiles(!showHiddenFiles)
+  }
+
+  const handleAbout = () => {
+    alert("MediaWrangler v0.1.0\nA media file explorer and organizer")
+  }
+
+  const menus: Menu[] = [
+    {
+      label: "File",
+      items: [
+        { label: "New Window", action: handleNewWindow, shortcut: "Ctrl+N" },
+        { label: "Open Folder...", action: handleOpenFolder, shortcut: "Ctrl+O" },
+        { divider: true },
+        { label: "Exit", action: handleExit, shortcut: "Alt+F4" },
+      ],
+    },
+    {
+      label: "Edit",
+      items: [
+        { label: "Copy", action: () => {}, shortcut: "Ctrl+C", disabled: true },
+        { label: "Cut", action: () => {}, shortcut: "Ctrl+X", disabled: true },
+        { label: "Paste", action: () => {}, shortcut: "Ctrl+V", disabled: true },
+        { divider: true },
+        { label: "Select All", action: () => {}, shortcut: "Ctrl+A", disabled: true },
+        { label: "Invert Selection", action: () => {}, disabled: true },
+      ],
+    },
+    {
+      label: "View",
+      items: [
+        { 
+          label: viewMode === "icons" ? "✓ Large Icons" : "Large Icons", 
+          action: () => setViewMode("icons") 
+        },
+        { 
+          label: viewMode === "details" ? "✓ Details" : "Details", 
+          action: () => setViewMode("details") 
+        },
+        { divider: true },
+        { 
+          label: showHiddenFiles ? "✓ Show Hidden Files" : "Show Hidden Files", 
+          action: handleToggleHiddenFiles,
+          shortcut: "Ctrl+H"
+        },
+        { divider: true },
+        { label: "Refresh", action: handleRefresh, shortcut: "F5" },
+      ],
+    },
+    {
+      label: "Help",
+      items: [
+        { label: "About MediaWrangler", action: handleAbout },
+        { label: "Documentation", action: () => {}, disabled: true },
+      ],
+    },
+  ]
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setActiveMenu(null)
+      }
+    }
+
+    if (activeMenu) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [activeMenu])
+
+  const handleMenuClick = (menuLabel: string) => {
+    setActiveMenu(activeMenu === menuLabel ? null : menuLabel)
+  }
+
+  const handleMenuHover = (menuLabel: string) => {
+    if (activeMenu) {
+      setActiveMenu(menuLabel)
+    }
+    setHoveredMenu(menuLabel)
+  }
+
+  const handleMenuItemClick = (item: MenuItem) => {
+    if (!item.disabled && item.action) {
+      item.action()
+      setActiveMenu(null)
+    }
+  }
+
+  return (
+    <div ref={menuRef} className="flex items-center bg-[#2d2d2d] border-b border-[#3a3a3a] select-none">
+      {menus.map((menu) => (
+        <div key={menu.label} className="relative">
+          <button
+            className={`px-4 py-1.5 text-sm hover:bg-[#3a3a3a] transition-colors ${
+              activeMenu === menu.label ? "bg-[#3a3a3a]" : ""
+            }`}
+            onClick={() => handleMenuClick(menu.label)}
+            onMouseEnter={() => handleMenuHover(menu.label)}
+            onMouseLeave={() => setHoveredMenu(null)}
+          >
+            {menu.label}
+          </button>
+          
+          {activeMenu === menu.label && (
+            <div className="absolute left-0 top-full z-50 min-w-[200px] bg-[#2d2d2d] border border-[#3a3a3a] shadow-lg">
+              {menu.items.map((item, index) => (
+                item.divider ? (
+                  <div key={index} className="my-1 border-t border-[#3a3a3a]" />
+                ) : (
+                  <button
+                    key={index}
+                    className={`w-full px-4 py-1.5 text-sm text-left flex justify-between items-center hover:bg-[#3a3a3a] transition-colors ${
+                      item.disabled ? "opacity-50 cursor-default" : ""
+                    }`}
+                    onClick={() => handleMenuItemClick(item)}
+                    disabled={item.disabled}
+                  >
+                    <span>{item.label}</span>
+                    {item.shortcut && (
+                      <span className="text-xs text-gray-400 ml-8">{item.shortcut}</span>
+                    )}
+                  </button>
+                )
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}

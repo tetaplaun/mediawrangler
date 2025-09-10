@@ -28,6 +28,10 @@ interface ExplorerState {
   viewMode: ViewMode
   filter: string
   sort: SortState
+  sortBy: string
+  sortOrder: "asc" | "desc"
+  showHiddenFiles: boolean
+  selectedEntries: Entry[]
 
   // Computed values
   filteredEntries: Entry[]
@@ -46,6 +50,11 @@ interface ExplorerActions {
   setViewMode: (mode: ViewMode) => void
   setFilter: (filter: string) => void
   setSort: (sort: SortState) => void
+  setSortBy: (field: string) => void
+  setSortOrder: (order: "asc" | "desc") => void
+  setShowHiddenFiles: (show: boolean) => void
+  setSelectedEntries: (entries: Entry[]) => void
+  toggleEntrySelection: (entry: Entry) => void
 
   // Quick link actions
   addQuickLink: (name: string, path: string) => Promise<boolean>
@@ -84,6 +93,10 @@ const useExplorerStore = create<ExplorerStore>()(
         viewMode: "details",
         filter: "",
         sort: { key: "name", dir: "asc" },
+        sortBy: "name",
+        sortOrder: "asc",
+        showHiddenFiles: false,
+        selectedEntries: [],
         filteredEntries: [],
         sortedEntries: [],
 
@@ -209,6 +222,59 @@ const useExplorerStore = create<ExplorerStore>()(
           set((state) => {
             state.sort = sort
             state.sortedEntries = sortEntries(state.filteredEntries, sort)
+          })
+        },
+
+        // Set sort by field
+        setSortBy: (field: string) => {
+          set((state) => {
+            state.sortBy = field
+            state.sort = { key: field as any, dir: state.sortOrder }
+            state.sortedEntries = sortEntries(state.filteredEntries, state.sort)
+          })
+        },
+
+        // Set sort order
+        setSortOrder: (order: "asc" | "desc") => {
+          set((state) => {
+            state.sortOrder = order
+            state.sort = { key: state.sortBy as any, dir: order }
+            state.sortedEntries = sortEntries(state.filteredEntries, state.sort)
+          })
+        },
+
+        // Set show hidden files
+        setShowHiddenFiles: (show: boolean) => {
+          set((state) => {
+            state.showHiddenFiles = show
+            // Re-filter entries based on hidden files setting
+            const baseFiltered = state.filter
+              ? state.entries.filter((e) => e.name.toLowerCase().includes(state.filter.toLowerCase()))
+              : state.entries
+            const filtered = show
+              ? baseFiltered
+              : baseFiltered.filter((e) => !e.name.startsWith('.'))
+            state.filteredEntries = filtered
+            state.sortedEntries = sortEntries(filtered, state.sort)
+          })
+        },
+
+        // Set selected entries
+        setSelectedEntries: (entries: Entry[]) => {
+          set((state) => {
+            state.selectedEntries = entries
+          })
+        },
+
+        // Toggle entry selection
+        toggleEntrySelection: (entry: Entry) => {
+          set((state) => {
+            const index = state.selectedEntries.findIndex(e => e.path === entry.path)
+            if (index >= 0) {
+              state.selectedEntries.splice(index, 1)
+            } else {
+              state.selectedEntries.push(entry)
+            }
           })
         },
 
@@ -390,6 +456,8 @@ export const useSortedEntries = () => useExplorerStore((state) => state.sortedEn
 export const useViewMode = () => useExplorerStore((state) => state.viewMode)
 export const useQuickLinks = () => useExplorerStore((state) => state.quickLinks)
 export const useDrives = () => useExplorerStore((state) => state.drives)
+export const useRefresh = () => useExplorerStore((state) => state.refresh)
+export const useSelectedEntries = () => useExplorerStore((state) => state.selectedEntries)
 
 // Navigation selectors - individual stable selectors to prevent infinite loops
 export const useGoBack = () => useExplorerStore((state) => state.goBack)
