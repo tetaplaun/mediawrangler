@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import useExplorerStore, {
   useNavigateTo,
   useRefresh,
+  useSortedEntries,
 } from "../store/explorerStore"
 
 interface MenuItem {
@@ -25,16 +26,19 @@ export function MenuBar() {
   const menuRef = useRef<HTMLDivElement>(null)
   const navigateTo = useNavigateTo()
   const refresh = useRefresh()
+  const entries = useSortedEntries()
   const setViewMode = useExplorerStore((state) => state.setViewMode)
   const viewMode = useExplorerStore((state) => state.viewMode)
   const showHiddenFiles = useExplorerStore((state) => state.showHiddenFiles)
   const setShowHiddenFiles = useExplorerStore((state) => state.setShowHiddenFiles)
+  const setSelectedEntries = useExplorerStore((state) => state.setSelectedEntries)
+  const selectedEntries = useExplorerStore((state) => state.selectedEntries)
 
   const handleNewWindow = () => {
     // Open new window functionality - to be implemented
     // For now, just open a new tab/window with the same URL
-    if (typeof window !== 'undefined') {
-      window.open(window.location.href, '_blank')
+    if (typeof window !== "undefined") {
+      window.open(window.location.href, "_blank")
     }
   }
 
@@ -58,9 +62,58 @@ export function MenuBar() {
   }
 
   const handleAbout = () => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       window.alert("MediaWrangler v0.1.0\nA media file explorer and organizer")
     }
+  }
+
+  const areDatesDifferent = (
+    encodedDateStr: string | undefined,
+    modifiedMs: number | null
+  ): boolean => {
+    if (!encodedDateStr || !modifiedMs) return false
+
+    try {
+      const encodedDate = new Date(encodedDateStr)
+      const modifiedDate = new Date(modifiedMs)
+
+      if (isNaN(encodedDate.getTime()) || isNaN(modifiedDate.getTime())) return false
+
+      // Compare dates at day level (ignore time within same day)
+      const encodedDay = new Date(
+        encodedDate.getFullYear(),
+        encodedDate.getMonth(),
+        encodedDate.getDate()
+      )
+      const modifiedDay = new Date(
+        modifiedDate.getFullYear(),
+        modifiedDate.getMonth(),
+        modifiedDate.getDate()
+      )
+
+      // Return true if dates are different days
+      return encodedDay.getTime() !== modifiedDay.getTime()
+    } catch {
+      return false
+    }
+  }
+
+  const handleSelectAll = () => {
+    setSelectedEntries([...entries])
+  }
+
+  const handleInvertSelection = () => {
+    const inverted = entries.filter(
+      (entry) => !selectedEntries.some((selected) => selected.path === entry.path)
+    )
+    setSelectedEntries(inverted)
+  }
+
+  const handleSelectAllWithDifferentDate = () => {
+    const filesWithDifferentDate = entries.filter((entry) =>
+      areDatesDifferent(entry.mediaInfo?.encodedDate, entry.modifiedMs)
+    )
+    setSelectedEntries(filesWithDifferentDate)
   }
 
   const menus: Menu[] = [
@@ -80,26 +133,27 @@ export function MenuBar() {
         { label: "Cut", action: () => {}, shortcut: "Ctrl+X", disabled: true },
         { label: "Paste", action: () => {}, shortcut: "Ctrl+V", disabled: true },
         { divider: true },
-        { label: "Select All", action: () => {}, shortcut: "Ctrl+A", disabled: true },
-        { label: "Invert Selection", action: () => {}, disabled: true },
+        { label: "Select All", action: handleSelectAll, shortcut: "Ctrl+A" },
+        { label: "Invert Selection", action: handleInvertSelection },
+        { label: "Select All Files with Different Date", action: handleSelectAllWithDifferentDate },
       ],
     },
     {
       label: "View",
       items: [
-        { 
-          label: viewMode === "icons" ? "✓ Large Icons" : "Large Icons", 
-          action: () => setViewMode("icons") 
+        {
+          label: viewMode === "icons" ? "✓ Large Icons" : "Large Icons",
+          action: () => setViewMode("icons"),
         },
-        { 
-          label: viewMode === "details" ? "✓ Details" : "Details", 
-          action: () => setViewMode("details") 
+        {
+          label: viewMode === "details" ? "✓ Details" : "Details",
+          action: () => setViewMode("details"),
         },
         { divider: true },
-        { 
-          label: showHiddenFiles ? "✓ Show Hidden Files" : "Show Hidden Files", 
+        {
+          label: showHiddenFiles ? "✓ Show Hidden Files" : "Show Hidden Files",
           action: handleToggleHiddenFiles,
-          shortcut: "Ctrl+H"
+          shortcut: "Ctrl+H",
         },
         { divider: true },
         { label: "Refresh", action: handleRefresh, shortcut: "F5" },
@@ -146,7 +200,10 @@ export function MenuBar() {
   }
 
   return (
-    <div ref={menuRef} className="flex items-center bg-[#2d2d2d] border-b border-[#3a3a3a] select-none">
+    <div
+      ref={menuRef}
+      className="flex items-center bg-[#2d2d2d] border-b border-[#3a3a3a] select-none"
+    >
       {menus.map((menu) => (
         <div key={menu.label} className="relative">
           <button
@@ -159,10 +216,10 @@ export function MenuBar() {
           >
             {menu.label}
           </button>
-          
+
           {activeMenu === menu.label && (
             <div className="absolute left-0 top-full z-50 min-w-[200px] bg-[#2d2d2d] border border-[#3a3a3a] shadow-lg">
-              {menu.items.map((item, index) => (
+              {menu.items.map((item, index) =>
                 item.divider ? (
                   <div key={index} className="my-1 border-t border-[#3a3a3a]" />
                 ) : (
@@ -180,7 +237,7 @@ export function MenuBar() {
                     )}
                   </button>
                 )
-              ))}
+              )}
             </div>
           )}
         </div>
