@@ -67,7 +67,51 @@ declare global {
         ) => Promise<{ ok: boolean; error?: string }>
         createFolder: (folderPath: string) => Promise<{ ok: boolean; error?: string }>
         deleteItem: (itemPath: string) => Promise<{ ok: boolean; error?: string }>
+        analyzeSource: (sourcePath: string) => Promise<{
+          ok: boolean
+          data?: {
+            filesByDate: Record<string, Array<{
+              path: string
+              name: string
+              type: "image" | "video"
+              size: number
+              date: string
+              encodedDate?: string
+              modifiedMs: number
+            }>>
+            totalFiles: number
+            totalSize: number
+            dates: string[]
+          }
+          error?: string
+        }>
+        importMedia: (
+          sourcePath: string,
+          destinationPath: string,
+          selectedDate?: string,
+          createDateFolders?: boolean
+        ) => Promise<{
+          ok: boolean
+          data?: {
+            imported: number
+            total: number
+            errors?: string[]
+          }
+          error?: string
+        }>
       }
+      onImportProgress: (callback: (progress: {
+        current: number
+        total: number
+        currentFile: string
+      }) => void) => () => void
+      onAnalyzeProgress: (callback: (progress: {
+        type: "scanning" | "complete"
+        scannedFiles: number
+        scannedDirs: number
+        foundMediaFiles: number
+        currentPath: string
+      }) => void) => () => void
     }
   }
 }

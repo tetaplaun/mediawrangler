@@ -104,7 +104,7 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
     setAnalyzeProgress(null)
     try {
       const result = await window.electronAPI.fs.analyzeSource(sourcePath)
-      if (result.ok) {
+      if (result.ok && result.data) {
         setAnalysisResult(result.data)
       } else {
         setError(result.error || "Failed to analyze source")
@@ -132,7 +132,7 @@ export function ImportDialog({ isOpen, onClose, onImportComplete }: ImportDialog
         createDateFolders
       )
       
-      if (result.ok) {
+      if (result.ok && result.data) {
         const { imported, total, errors } = result.data
         
         if (errors && errors.length > 0) {
