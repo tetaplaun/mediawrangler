@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   showMessageBox: (options: any) => ipcRenderer.invoke("app:showMessageBox", options),
   fs: {
     getDrives: () => ipcRenderer.invoke("fs:getDrives"),
+    findRemovableDriveWithDCIM: () => ipcRenderer.invoke("fs:findRemovableDriveWithDCIM"),
     getQuickLinks: () => ipcRenderer.invoke("fs:getQuickLinks"),
     listDir: (targetPath: string) => ipcRenderer.invoke("fs:listDir", targetPath),
     homeDir: () => ipcRenderer.invoke("fs:homeDir"),
@@ -29,8 +30,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     createFolder: (folderPath: string) => ipcRenderer.invoke("fs:createFolder", folderPath),
     deleteItem: (itemPath: string) => ipcRenderer.invoke("fs:deleteItem", itemPath),
     analyzeSource: (sourcePath: string) => ipcRenderer.invoke("fs:analyzeSource", sourcePath),
-    importMedia: (sourcePath: string, destinationPath: string, selectedDate?: string, createDateFolders?: boolean) =>
-      ipcRenderer.invoke("fs:importMedia", sourcePath, destinationPath, selectedDate, createDateFolders),
+    importMedia: (
+      sourcePath: string,
+      destinationPath: string,
+      selectedDate?: string,
+      createDateFolders?: boolean
+    ) =>
+      ipcRenderer.invoke(
+        "fs:importMedia",
+        sourcePath,
+        destinationPath,
+        selectedDate,
+        createDateFolders
+      ),
   },
   onImportProgress: (callback: (progress: any) => void) => {
     ipcRenderer.on("import-progress", (_event, progress) => callback(progress))

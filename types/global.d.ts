@@ -15,6 +15,7 @@ declare global {
       }) => Promise<{ response: number; checkboxChecked?: boolean }>
       fs: {
         getDrives: () => Promise<Array<{ name: string; path: string; type: "drive" }>>
+        findRemovableDriveWithDCIM: () => Promise<string | null>
         getQuickLinks: () => Promise<
           Array<{ id: string; name: string; path: string; type: "directory"; isCustom: boolean }>
         >

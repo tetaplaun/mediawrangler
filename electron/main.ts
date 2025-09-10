@@ -606,6 +606,37 @@ ipcMain.handle("fs:getDrives", async () => {
   return await getDrives()
 })
 
+/**
+ * Find removable drives that contain a DCIM directory (typical for camera SD cards)
+ */
+async function findRemovableDriveWithDCIM(): Promise<string | null> {
+  const drives = await getDrives()
+
+  // Skip system drives (C: on Windows, / on Unix)
+  const systemDriveRoots = process.platform === "win32" ? ["C:"] : ["/"]
+
+  for (const drive of drives) {
+    if (systemDriveRoots.some((root) => drive.path.startsWith(root))) {
+      continue // Skip system drives
+    }
+
+    try {
+      const dcimPath = path.join(drive.path, "DCIM")
+      await fsp.access(dcimPath)
+      // If we can access DCIM directory, this is likely a camera drive
+      return dcimPath
+    } catch (_) {
+      // DCIM directory not found or not accessible, continue checking other drives
+    }
+  }
+
+  return null
+}
+
+ipcMain.handle("fs:findRemovableDriveWithDCIM", async () => {
+  return await findRemovableDriveWithDCIM()
+})
+
 ipcMain.handle("fs:getQuickLinks", async () => {
   return getQuickLinks()
 })
@@ -1134,12 +1165,14 @@ ipcMain.handle(
       let analysis: AnalyzeResult
       const cacheKey = sourcePath
       const cached = analysisCache.get(cacheKey)
-      
+
       if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
         console.log(`Using cached analysis for import: ${sourcePath}`)
         analysis = cached.result
       } else {
-        console.log(`Cache expired or not found, performing fresh analysis for import: ${sourcePath}`)
+        console.log(
+          `Cache expired or not found, performing fresh analysis for import: ${sourcePath}`
+        )
         analysis = await analyzeSourceDirectory(sourcePath)
         // Update cache with fresh analysis
         analysisCache.set(cacheKey, { result: analysis, timestamp: Date.now() })

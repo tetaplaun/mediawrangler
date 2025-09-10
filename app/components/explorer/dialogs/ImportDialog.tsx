@@ -93,6 +93,19 @@ export function ImportDialog({
   const [importHistory, setImportHistory] = useState<ImportHistory[]>([])
   const [showHistory, setShowHistory] = useState(false)
 
+  // Auto-detect removable drive with DCIM folder
+  const findRemovableDriveWithDCIM = useCallback(async () => {
+    try {
+      const dcimPath = await window.electronAPI.fs.findRemovableDriveWithDCIM()
+      if (dcimPath) {
+        setSourcePath(dcimPath)
+      }
+    } catch (err) {
+      console.error("Failed to find removable drive with DCIM:", err)
+      // Silently fail - user can manually select source
+    }
+  }, [])
+
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent, type: "source" | "destination") => {
     e.preventDefault()
@@ -141,8 +154,11 @@ export function ImportDialog({
     } else {
       // Pre-select current directory as destination when dialog opens
       setDestinationPath(currentPath)
+
+      // Try to find and pre-select removable drive with DCIM folder as source
+      findRemovableDriveWithDCIM()
     }
-  }, [isOpen, currentPath])
+  }, [isOpen, currentPath, findRemovableDriveWithDCIM])
 
   useEffect(() => {
     // Set up progress listeners
