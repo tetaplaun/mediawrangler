@@ -103,7 +103,7 @@
     "autoprefixer": "^10.4.19",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
-    "electron": "^30.0.9",
+    "electron": "^35.7.5",
     "electron-builder": "^26.0.12",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
