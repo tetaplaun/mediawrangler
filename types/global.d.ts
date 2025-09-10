@@ -16,6 +16,17 @@ declare global {
       fs: {
         getDrives: () => Promise<Array<{ name: string; path: string; type: "drive" }>>
         findRemovableDriveWithDCIM: () => Promise<string | null>
+        listDirectoriesOnly: (targetPath: string) => Promise<{
+          path: string
+          entries: Array<{
+            name: string
+            path: string
+            type: "directory"
+            size: number | null
+            modifiedMs: number | null
+            ext: string | null
+          }>
+        }>
         getQuickLinks: () => Promise<
           Array<{ id: string; name: string; path: string; type: "directory"; isCustom: boolean }>
         >

@@ -69,6 +69,77 @@ interface ImportDialogProps {
   currentPath: string
 }
 
+enum SourceType {
+  STANDARD_DCIM = "standard_dcim",
+  DJI_CAMERA = "dji_camera",
+  UNKNOWN = "unknown",
+}
+
+interface SourceAnalysis {
+  type: SourceType
+  structure: {
+    hasDjiFolders: boolean
+    hasPanoramaFolder: boolean
+    djiFolders: string[]
+    panoramaFolders: string[]
+  }
+}
+
+// Import strategies for different source types (prepared for future extensibility)
+class _StandardImportStrategy implements _ImportStrategy {
+  constructor(private _createDateFolders: boolean = false) {}
+
+  getDestinationPath(_filePath: string, _baseDest: string): string {
+    // This is handled by the backend for standard imports
+    return _baseDest
+  }
+
+  shouldCreateDateFolders(): boolean {
+    return this._createDateFolders
+  }
+
+  getRequiredDirectories(): string[] {
+    return this._createDateFolders ? ["IMAGES", "VIDEOS"] : ["IMAGES", "VIDEOS"]
+  }
+
+  async shouldIncludeItem(_itemPath: string, _selectedDate?: string): Promise<boolean> {
+    // Filtering is handled by the backend for standard imports
+    return true
+  }
+}
+
+class _DjiImportStrategy implements _ImportStrategy {
+  constructor(private _createDateFolders: boolean = false) {}
+
+  getDestinationPath(_filePath: string, _baseDest: string): string {
+    // This is handled by the backend for DJI imports
+    return _baseDest
+  }
+
+  shouldCreateDateFolders(): boolean {
+    return this._createDateFolders
+  }
+
+  getRequiredDirectories(): string[] {
+    const dirs = this._createDateFolders ? ["IMAGES", "VIDEOS"] : ["IMAGES", "VIDEOS"]
+    // DJI strategy also creates PANO_SOURCES
+    dirs.push("PANO_SOURCES")
+    return dirs
+  }
+
+  async shouldIncludeItem(_itemPath: string, _selectedDate?: string): Promise<boolean> {
+    // Filtering is handled by the backend for DJI imports
+    return true
+  }
+}
+
+interface _ImportStrategy {
+  getDestinationPath(_filePath: string, _baseDest: string): string
+  shouldCreateDateFolders(): boolean
+  getRequiredDirectories(): string[]
+  shouldIncludeItem(_itemPath: string, _selectedDate?: string): Promise<boolean>
+}
+
 export function ImportDialog({
   isOpen,
   onClose,
@@ -82,6 +153,7 @@ export function ImportDialog({
   const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalyzeResult | null>(null)
+  const [sourceAnalysis, setSourceAnalysis] = useState<SourceAnalysis | null>(null)
   const [analyzeProgress, setAnalyzeProgress] = useState<AnalyzeProgress | null>(null)
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [error, setError] = useState<string>("")
@@ -105,6 +177,98 @@ export function ImportDialog({
       // Silently fail - user can manually select source
     }
   }, [])
+
+  // Analyze source directory structure to detect source type
+  const analyzeSourceStructure = useCallback(
+    async (sourcePath: string): Promise<SourceAnalysis> => {
+      const analysis: SourceAnalysis = {
+        type: SourceType.UNKNOWN,
+        structure: {
+          hasDjiFolders: false,
+          hasPanoramaFolder: false,
+          djiFolders: [],
+          panoramaFolders: [],
+        },
+      }
+
+      try {
+        const result = await window.electronAPI.fs.listDir(sourcePath)
+        if (!result.entries) return analysis
+
+        // Check for DCIM directory
+        const dcimEntry = result.entries.find(
+          (entry) => entry.type === "directory" && entry.name.toUpperCase() === "DCIM"
+        )
+
+        if (!dcimEntry) {
+          // No DCIM directory found, check if we're already in a DCIM directory
+          const djiFolders = result.entries.filter(
+            (entry) => entry.type === "directory" && /^DJI_\d{3}$/.test(entry.name)
+          )
+          const panoramaFolder = result.entries.find(
+            (entry) => entry.type === "directory" && entry.name.toUpperCase() === "PANORAMA"
+          )
+
+          analysis.structure.hasDjiFolders = djiFolders.length > 0
+          analysis.structure.hasPanoramaFolder = !!panoramaFolder
+          analysis.structure.djiFolders = djiFolders.map((f) => f.name)
+          if (panoramaFolder) {
+            // Get panorama subfolders (optimized - only reads directory metadata)
+            try {
+              const panoramaResult = await window.electronAPI.fs.listDirectoriesOnly(
+                path.join(sourcePath, panoramaFolder.name)
+              )
+              analysis.structure.panoramaFolders = panoramaResult.entries.map((f) => f.name)
+            } catch (err) {
+              console.error("Failed to read PANORAMA directory:", err)
+            }
+          }
+        } else {
+          // DCIM directory found, analyze its contents
+          const dcimPath = path.join(sourcePath, dcimEntry.name)
+          const dcimResult = await window.electronAPI.fs.listDir(dcimPath)
+
+          const djiFolders =
+            dcimResult.entries?.filter(
+              (entry) => entry.type === "directory" && /^DJI_\d{3}$/.test(entry.name)
+            ) || []
+          const panoramaFolder = dcimResult.entries?.find(
+            (entry) => entry.type === "directory" && entry.name.toUpperCase() === "PANORAMA"
+          )
+
+          analysis.structure.hasDjiFolders = djiFolders.length > 0
+          analysis.structure.hasPanoramaFolder = !!panoramaFolder
+          analysis.structure.djiFolders = djiFolders.map((f) => f.name)
+          if (panoramaFolder) {
+            // Get panorama subfolders (optimized - only reads directory metadata)
+            try {
+              const panoramaResult = await window.electronAPI.fs.listDirectoriesOnly(
+                path.join(dcimPath, panoramaFolder.name)
+              )
+              analysis.structure.panoramaFolders = panoramaResult.entries.map((f) => f.name)
+            } catch (err) {
+              console.error("Failed to read PANORAMA directory:", err)
+            }
+          }
+        }
+
+        // Determine source type
+        if (analysis.structure.hasDjiFolders && analysis.structure.hasPanoramaFolder) {
+          analysis.type = SourceType.DJI_CAMERA
+        } else if (analysis.structure.hasDjiFolders || analysis.structure.hasPanoramaFolder) {
+          analysis.type = SourceType.DJI_CAMERA // Could be partial DJI setup
+        } else {
+          analysis.type = SourceType.STANDARD_DCIM
+        }
+
+        return analysis
+      } catch (err) {
+        console.error("Failed to analyze source structure:", err)
+        return analysis
+      }
+    },
+    []
+  )
 
   // Drag and drop handlers
   const handleDragOver = useCallback((e: React.DragEvent, type: "source" | "destination") => {
@@ -145,6 +309,7 @@ export function ImportDialog({
       setSelectedDate("")
       setCreateDateFolders(false)
       setAnalysisResult(null)
+      setSourceAnalysis(null)
       setAnalyzeProgress(null)
       setImportProgress(null)
       setError("")
@@ -198,7 +363,13 @@ export function ImportDialog({
     setAnalyzing(true)
     setError("")
     setAnalyzeProgress(null)
+    setSourceAnalysis(null)
     try {
+      // Perform source structure analysis first
+      const sourceAnalysisResult = await analyzeSourceStructure(sourcePath)
+      setSourceAnalysis(sourceAnalysisResult)
+
+      // Then perform regular media file analysis
       const result = await window.electronAPI.fs.analyzeSource(sourcePath)
       if (result.ok && result.data) {
         setAnalysisResult(result.data)
@@ -241,12 +412,7 @@ export function ImportDialog({
           })
         }
 
-        if (skipped && skipped.length > 0) {
-          errorMessage += `\nSkipped ${skipped.length} file(s):\n`
-          skipped.forEach((skip: ImportError) => {
-            errorMessage += `• ${skip.file}: ${skip.error}\n`
-          })
-        }
+        // Skipped items are not displayed
 
         if (warnings && warnings.length > 0) {
           errorMessage += `\nWarnings:\n`
@@ -697,48 +863,136 @@ export function ImportDialog({
 
           {/* Analysis Results - Hide during import */}
           {!importing && analysisResult && (
-            <div className="space-y-6">
-              {/* Results Overview */}
-              <div className="bg-gradient-to-br from-neutral-800/50 to-neutral-900/50 rounded-xl p-6 border border-neutral-700">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                    <svg
-                      className="w-5 h-5 text-green-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    Analysis Complete
-                  </h3>
+            <>
+              <div className="space-y-6">
+                {/* Results Overview */}
+                <div className="bg-gradient-to-br from-neutral-800/50 to-neutral-900/50 rounded-xl p-6 border border-neutral-700">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <svg
+                        className="w-5 h-5 text-green-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      Analysis Complete
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-white mb-1">
+                        {analysisResult.totalFiles.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-neutral-400">Media Files Found</div>
+                    </div>
+                    <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-white mb-1">
+                        {formatBytes(analysisResult.totalSize)}
+                      </div>
+                      <div className="text-sm text-neutral-400">Total Size</div>
+                    </div>
+                    <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-white mb-1">
+                        {analysisResult.dates.length}
+                      </div>
+                      <div className="text-sm text-neutral-400">Date Groups</div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-white mb-1">
-                      {analysisResult.totalFiles.toLocaleString()}
+                {/* Source Type Information */}
+                {sourceAnalysis && (
+                  <div className="bg-gradient-to-br from-neutral-800/50 to-neutral-900/50 rounded-xl p-6 border border-neutral-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                        <svg
+                          className="w-5 h-5 text-blue-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                          />
+                        </svg>
+                        Source Type Detected
+                      </h3>
                     </div>
-                    <div className="text-sm text-neutral-400">Media Files Found</div>
-                  </div>
-                  <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-white mb-1">
-                      {formatBytes(analysisResult.totalSize)}
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-neutral-300">Camera Type:</span>
+                        <span
+                          className={`font-medium ${
+                            sourceAnalysis.type === SourceType.DJI_CAMERA
+                              ? "text-green-400"
+                              : sourceAnalysis.type === SourceType.STANDARD_DCIM
+                                ? "text-blue-400"
+                                : "text-yellow-400"
+                          }`}
+                        >
+                          {sourceAnalysis.type === SourceType.DJI_CAMERA && "DJI Camera"}
+                          {sourceAnalysis.type === SourceType.STANDARD_DCIM && "Standard DCIM"}
+                          {sourceAnalysis.type === SourceType.UNKNOWN && "Unknown"}
+                        </span>
+                      </div>
+
+                      {sourceAnalysis.structure.hasDjiFolders && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-neutral-300">DJI Folders:</span>
+                          <span className="text-green-400 font-medium">
+                            {sourceAnalysis.structure.djiFolders.length} found
+                          </span>
+                        </div>
+                      )}
+
+                      {sourceAnalysis.structure.hasPanoramaFolder && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-neutral-300">Panorama Folders:</span>
+                          <span className="text-purple-400 font-medium">
+                            {sourceAnalysis.structure.panoramaFolders.length} found
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="mt-4 p-3 bg-neutral-700/30 rounded-lg">
+                        <div className="text-sm text-neutral-400 mb-2">Import Strategy:</div>
+                        <div className="text-sm text-neutral-300">
+                          {sourceAnalysis.type === SourceType.DJI_CAMERA && (
+                            <div className="space-y-1">
+                              <div>
+                                • DJI files will be organized by date in IMAGES/ and VIDEOS/ folders
+                              </div>
+                              <div>
+                                • Panorama folders will be copied to PANO_SOURCES/ with folder-based
+                                date filtering
+                              </div>
+                            </div>
+                          )}
+                          {sourceAnalysis.type === SourceType.STANDARD_DCIM && (
+                            <div>
+                              • Files will be organized by date in IMAGES/ and VIDEOS/ folders
+                            </div>
+                          )}
+                          {sourceAnalysis.type === SourceType.UNKNOWN && (
+                            <div>• Standard file organization will be applied</div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-sm text-neutral-400">Total Size</div>
                   </div>
-                  <div className="bg-neutral-700/30 rounded-lg p-4 text-center">
-                    <div className="text-2xl font-bold text-white mb-1">
-                      {analysisResult.dates.length}
-                    </div>
-                    <div className="text-sm text-neutral-400">Date Groups</div>
-                  </div>
-                </div>
+                )}
 
                 {/* Date Selection */}
                 {analysisResult.dates.length > 0 && (
@@ -768,7 +1022,6 @@ export function ImportDialog({
                 )}
               </div>
 
-              {/* Import Options */}
               <div className="bg-neutral-800/50 rounded-xl p-6 border border-neutral-700">
                 <h4 className="text-lg font-medium text-white mb-4">Import Options</h4>
 
@@ -812,7 +1065,7 @@ export function ImportDialog({
                   </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           {/* Import Progress */}

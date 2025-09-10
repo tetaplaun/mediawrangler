@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   fs: {
     getDrives: () => ipcRenderer.invoke("fs:getDrives"),
     findRemovableDriveWithDCIM: () => ipcRenderer.invoke("fs:findRemovableDriveWithDCIM"),
+    listDirectoriesOnly: (targetPath: string) =>
+      ipcRenderer.invoke("fs:listDirectoriesOnly", targetPath),
     getQuickLinks: () => ipcRenderer.invoke("fs:getQuickLinks"),
     listDir: (targetPath: string) => ipcRenderer.invoke("fs:listDir", targetPath),
     homeDir: () => ipcRenderer.invoke("fs:homeDir"),

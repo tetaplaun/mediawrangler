@@ -637,8 +637,377 @@ ipcMain.handle("fs:findRemovableDriveWithDCIM", async () => {
   return await findRemovableDriveWithDCIM()
 })
 
+/**
+ * Analyze source structure to determine import strategy
+ */
+async function analyzeSourceForImport(sourcePath: string): Promise<{
+  sourceType: "dji_camera" | "standard_dcim" | "unknown"
+  djiFolders: string[]
+  panoramaFolders: string[]
+  panoramaFolderDates: Record<string, string>
+  dcimPath: string | null
+}> {
+  const result = {
+    sourceType: "unknown" as "dji_camera" | "standard_dcim" | "unknown",
+    djiFolders: [] as string[],
+    panoramaFolders: [] as string[],
+    panoramaFolderDates: {} as Record<string, string>,
+    dcimPath: null as string | null,
+  }
+
+  try {
+    const sourceResult = await listDirectory(sourcePath)
+    if (!sourceResult.entries) return result
+
+    // Check for DCIM directory
+    const dcimEntry = sourceResult.entries.find(
+      (entry) => entry.type === "directory" && entry.name.toUpperCase() === "DCIM"
+    )
+
+    let targetPath = sourcePath
+    if (dcimEntry) {
+      result.dcimPath = path.join(sourcePath, dcimEntry.name)
+      targetPath = result.dcimPath
+    }
+
+    // Analyze the target directory
+    const targetResult = await listDirectory(targetPath)
+    if (!targetResult.entries) return result
+
+    // Find DJI folders and PANORAMA folder
+    const djiFolders = targetResult.entries.filter(
+      (entry) => entry.type === "directory" && /^DJI_\d{3}$/.test(entry.name)
+    )
+
+    const panoramaFolder = targetResult.entries.find(
+      (entry) => entry.type === "directory" && entry.name.toUpperCase() === "PANORAMA"
+    )
+
+    result.djiFolders = djiFolders.map((f) => f.name)
+
+    // Get panorama subfolders if PANORAMA exists (optimized - only reads directory metadata)
+    if (panoramaFolder) {
+      try {
+        const panoramaPath = path.join(targetPath, panoramaFolder.name)
+        const panoramaResult = await listDirectoriesOnly(panoramaPath)
+        result.panoramaFolders = panoramaResult.entries.map((f) => f.name)
+
+        // Store folder dates to avoid re-fetching later
+        panoramaResult.entries.forEach((folder) => {
+          if (folder.modifiedMs !== null) {
+            const date = new Date(folder.modifiedMs)
+            result.panoramaFolderDates[folder.name] = date.toISOString().split("T")[0]
+          }
+        })
+      } catch (err) {
+        console.error("Failed to read PANORAMA directory:", err)
+      }
+    }
+
+    // Determine source type
+    if (result.djiFolders.length > 0 || result.panoramaFolders.length > 0) {
+      result.sourceType = "dji_camera"
+    } else {
+      result.sourceType = "standard_dcim"
+    }
+
+    return result
+  } catch (err) {
+    console.error("Failed to analyze source for import:", err)
+    return result
+  }
+}
+
+// Note: getFolderDate is no longer needed as we get dates from listDirectoriesOnly
+
+/**
+ * Import DJI media files (images and videos from DJI_XXX folders)
+ */
+async function importDjiFiles(
+  sourcePath: string,
+  destinationPath: string,
+  djiFolders: string[],
+  event?: IpcMainInvokeEvent,
+  totalOffset: number = 0,
+  grandTotal: number = 0,
+  selectedDate?: string,
+  createDateFolders: boolean = false
+): Promise<{
+  imported: number
+  errors: ImportError[]
+  skipped: ImportError[]
+}> {
+  const result = { imported: 0, errors: [] as ImportError[], skipped: [] as ImportError[] }
+
+  // Analyze DJI folders for media files
+  const filesByDate: Record<string, MediaFileInfo[]> = {}
+  let totalFiles = 0
+
+  for (const djiFolder of djiFolders) {
+    const djiPath = path.join(sourcePath, djiFolder)
+    try {
+      const folderAnalysis = await analyzeSourceDirectory(djiPath)
+      // Merge results
+      Object.entries(folderAnalysis.filesByDate).forEach(([date, files]) => {
+        if (!filesByDate[date]) filesByDate[date] = []
+        filesByDate[date].push(...files)
+      })
+      totalFiles += folderAnalysis.totalFiles
+    } catch (err) {
+      console.error(`Failed to analyze DJI folder ${djiFolder}:`, err)
+    }
+  }
+
+  // Filter files by date if specified
+  let filesToImport: MediaFileInfo[] = []
+  if (selectedDate) {
+    filesToImport = filesByDate[selectedDate] || []
+  } else {
+    Object.values(filesByDate).forEach((files) => {
+      filesToImport.push(...files)
+    })
+  }
+
+  if (filesToImport.length === 0) {
+    return result
+  }
+
+  // Group files by date for organized copying
+  const groupedFiles: Record<string, MediaFileInfo[]> = {}
+  filesToImport.forEach((file) => {
+    if (!groupedFiles[file.date]) {
+      groupedFiles[file.date] = []
+    }
+    groupedFiles[file.date].push(file)
+  })
+
+  // Copy files with date-based organization
+  for (const [date, files] of Object.entries(groupedFiles)) {
+    let imagesDir: string
+    let videosDir: string
+
+    if (createDateFolders) {
+      imagesDir = path.join(destinationPath, date, "IMAGES")
+      videosDir = path.join(destinationPath, date, "VIDEOS")
+    } else {
+      imagesDir = path.join(destinationPath, "IMAGES")
+      videosDir = path.join(destinationPath, "VIDEOS")
+    }
+
+    // Create directories
+    try {
+      await fsp.mkdir(imagesDir, { recursive: true })
+      await fsp.mkdir(videosDir, { recursive: true })
+    } catch (dirError) {
+      const dirErrorObj = categorizeError(dirError, `Directory creation for ${date}`)
+      result.errors.push(dirErrorObj)
+      continue
+    }
+
+    // Copy files
+    let filesProcessed = 0
+    await mapLimit(files, 8, async (file) => {
+      try {
+        const targetDir = file.type === "image" ? imagesDir : videosDir
+        let targetPath = path.join(targetDir, file.name)
+
+        // Handle duplicates
+        let counter = 1
+        while (
+          await fsp
+            .access(targetPath)
+            .then(() => true)
+            .catch(() => false)
+        ) {
+          const ext = path.extname(file.name)
+          const baseName = path.basename(file.name, ext)
+          targetPath = path.join(targetDir, `${baseName}_${counter}${ext}`)
+          counter++
+        }
+
+        // Send progress update BEFORE copying to show current file
+        if (event && grandTotal > 0) {
+          const progress: ImportProgress = {
+            current: totalOffset + result.imported,
+            total: grandTotal,
+            currentFile: file.name,
+          }
+          event.sender.send("import-progress", progress)
+        }
+        
+        await copyFileWithRetry(file.path, targetPath)
+        result.imported++
+        filesProcessed++
+      } catch (fileError) {
+        const fileErrorObj = categorizeError(fileError, file.path)
+        result.errors.push(fileErrorObj)
+        filesProcessed++
+      }
+    })
+  }
+
+  return result
+}
+
+/**
+ * Import panorama folders with folder-based date filtering
+ */
+async function importPanoramaFolders(
+  sourcePath: string,
+  destinationPath: string,
+  panoramaFolders: string[],
+  panoramaFolderDates: Record<string, string>,
+  event?: IpcMainInvokeEvent,
+  totalOffset: number = 0,
+  grandTotal: number = 0,
+  selectedDate?: string
+): Promise<{
+  imported: number
+  errors: ImportError[]
+  skipped: ImportError[]
+}> {
+  const result = { imported: 0, errors: [] as ImportError[], skipped: [] as ImportError[] }
+
+  if (panoramaFolders.length === 0) {
+    return result
+  }
+
+  // Create PANO_SOURCES directory
+  const panoSourcesDir = path.join(destinationPath, "PANO_SOURCES")
+  try {
+    await fsp.mkdir(panoSourcesDir, { recursive: true })
+  } catch (dirError) {
+    const dirErrorObj = categorizeError(dirError, `PANO_SOURCES directory creation`)
+    result.errors.push(dirErrorObj)
+    return result
+  }
+
+  // Process each panorama folder
+  let foldersProcessed = 0
+  for (const panoFolder of panoramaFolders) {
+    const sourcePanoPath = path.join(sourcePath, panoFolder)
+    const targetPanoPath = path.join(panoSourcesDir, panoFolder)
+
+    try {
+      // Use pre-fetched folder date for filtering
+      const folderDate = panoramaFolderDates[panoFolder]
+
+      // Skip if date filtering is enabled and doesn't match
+      if (selectedDate && folderDate && folderDate !== selectedDate) {
+        // Silently skip without tracking
+        foldersProcessed++
+        continue
+      }
+
+      // Send progress update BEFORE copying to show current folder
+      if (event && grandTotal > 0) {
+        const progress: ImportProgress = {
+          current: totalOffset + result.imported,
+          total: grandTotal,
+          currentFile: `Panorama folder: ${panoFolder}`,
+        }
+        event.sender.send("import-progress", progress)
+      }
+      
+      // Copy the entire folder recursively
+      await copyDirectoryRecursive(sourcePanoPath, targetPanoPath)
+      result.imported++
+      foldersProcessed++
+    } catch (folderError) {
+      const folderErrorObj = categorizeError(folderError, sourcePanoPath)
+      result.errors.push(folderErrorObj)
+      foldersProcessed++
+    }
+  }
+
+  return result
+}
+
+/**
+ * Get only directory entries (folders) with their metadata, without reading contents
+ */
+async function listDirectoriesOnly(targetPath: string): Promise<{
+  path: string
+  entries: Array<{
+    name: string
+    path: string
+    type: "directory"
+    size: number | null
+    modifiedMs: number | null
+    ext: string | null
+  }>
+}> {
+  try {
+    const entries = await fsp.readdir(targetPath, { withFileTypes: true })
+
+    const directories = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map(async (entry) => {
+          const fullPath = path.join(targetPath, entry.name)
+          try {
+            const stats = await fsp.stat(fullPath)
+            return {
+              name: entry.name,
+              path: fullPath,
+              type: "directory" as const,
+              size: stats.size,
+              modifiedMs: stats.mtimeMs,
+              ext: null,
+            }
+          } catch (err) {
+            // If we can't read stats, still include the directory
+            return {
+              name: entry.name,
+              path: fullPath,
+              type: "directory" as const,
+              size: null,
+              modifiedMs: null,
+              ext: null,
+            }
+          }
+        })
+    )
+
+    return {
+      path: targetPath,
+      entries: directories,
+    }
+  } catch (err) {
+    console.error(`Failed to list directories in ${targetPath}:`, err)
+    return {
+      path: targetPath,
+      entries: [],
+    }
+  }
+}
+
+/**
+ * Recursively copy a directory
+ */
+async function copyDirectoryRecursive(source: string, target: string): Promise<void> {
+  await fsp.mkdir(target, { recursive: true })
+
+  const entries = await fsp.readdir(source, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const sourcePath = path.join(source, entry.name)
+    const targetPath = path.join(target, entry.name)
+
+    if (entry.isDirectory()) {
+      await copyDirectoryRecursive(sourcePath, targetPath)
+    } else {
+      await copyFileWithRetry(sourcePath, targetPath)
+    }
+  }
+}
+
 ipcMain.handle("fs:getQuickLinks", async () => {
   return getQuickLinks()
+})
+
+ipcMain.handle("fs:listDirectoriesOnly", async (_e: IpcMainInvokeEvent, targetPath: string) => {
+  return await listDirectoriesOnly(targetPath)
 })
 
 ipcMain.handle("fs:listDir", async (_e: IpcMainInvokeEvent, targetPath: string) => {
@@ -875,6 +1244,11 @@ async function analyzeSourceDirectory(
 
         if (dirent.isDirectory()) {
           scannedDirs++
+
+          // Skip PANORAMA directories to avoid scanning thousands of panorama source files
+          if (dirent.name.toUpperCase() === "PANORAMA") {
+            return
+          }
 
           // Send progress update less frequently to avoid overwhelming the UI
           if (event && scannedDirs % 5 === 0) {
@@ -1161,154 +1535,241 @@ ipcMain.handle(
     createDateFolders: boolean = false
   ) => {
     try {
-      // Check cache first to avoid redundant re-analysis
-      let analysis: AnalyzeResult
-      const cacheKey = sourcePath
-      const cached = analysisCache.get(cacheKey)
+      console.log(`Starting enhanced import from ${sourcePath} to ${destinationPath}`)
 
-      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        console.log(`Using cached analysis for import: ${sourcePath}`)
-        analysis = cached.result
-      } else {
-        console.log(
-          `Cache expired or not found, performing fresh analysis for import: ${sourcePath}`
-        )
-        analysis = await analyzeSourceDirectory(sourcePath)
-        // Update cache with fresh analysis
-        analysisCache.set(cacheKey, { result: analysis, timestamp: Date.now() })
-      }
+      // Analyze source structure to determine import strategy
+      const sourceAnalysis = await analyzeSourceForImport(sourcePath)
+      console.log(`Source analysis:`, sourceAnalysis)
 
-      // Filter files by date if specified
-      let filesToImport: MediaFileInfo[] = []
-      if (selectedDate) {
-        filesToImport = analysis.filesByDate[selectedDate] || []
-      } else {
-        // Import all files
-        Object.values(analysis.filesByDate).forEach((files) => {
-          filesToImport.push(...files)
-        })
-      }
+      let totalImported = 0
+      let totalErrors: ImportError[] = []
+      let totalSkipped: ImportError[] = []
+      let totalWarnings: string[] = []
 
-      if (filesToImport.length === 0) {
-        return { ok: false, error: "No files to import" }
-      }
+      // Handle different source types
+      if (sourceAnalysis.sourceType === "dji_camera") {
+        console.log("Detected DJI camera source, using specialized import strategy")
 
-      let copiedCount = 0
-      const errors: ImportError[] = []
-      const skipped: ImportError[] = []
-      const warnings: string[] = []
-
-      // Group files by date for organized copying
-      const filesByDate: Record<string, MediaFileInfo[]> = {}
-      filesToImport.forEach((file) => {
-        if (!filesByDate[file.date]) {
-          filesByDate[file.date] = []
-        }
-        filesByDate[file.date].push(file)
-      })
-
-      for (const [date, files] of Object.entries(filesByDate)) {
-        // Determine directory structure based on createDateFolders option
-        let imagesDir: string
-        let videosDir: string
-
-        if (createDateFolders) {
-          // Create date-based subdirectories
-          const dateFolder = date // Format: YYYY-MM-DD
-          imagesDir = path.join(destinationPath, dateFolder, "IMAGES")
-          videosDir = path.join(destinationPath, dateFolder, "VIDEOS")
-        } else {
-          // Create IMAGES and VIDEOS directly in destination
-          imagesDir = path.join(destinationPath, "IMAGES")
-          videosDir = path.join(destinationPath, "VIDEOS")
-        }
-
-        // Create directories if they don't exist
-        try {
-          await fsp.mkdir(imagesDir, { recursive: true })
-          await fsp.mkdir(videosDir, { recursive: true })
-        } catch (dirError) {
-          const dirErrorObj = categorizeError(dirError, `Directory creation for ${date}`)
-          errors.push(dirErrorObj)
-          continue // Skip this date group
-        }
-
-        // Copy files with optimized concurrency for better performance
-        await mapLimit(files, 8, async (file) => {
-          try {
-            const targetDir = file.type === "image" ? imagesDir : videosDir
-            let targetPath = path.join(targetDir, file.name)
-
-            // Handle duplicates by adding a number suffix
-            let counter = 1
-            let originalTargetPath = targetPath
-            while (
-              await fsp
-                .access(targetPath)
-                .then(() => true)
-                .catch(() => false)
-            ) {
-              const ext = path.extname(file.name)
-              const nameWithoutExt = path.basename(file.name, ext)
-              targetPath = path.join(targetDir, `${nameWithoutExt}_${counter}${ext}`)
-              counter++
-
-              // Prevent infinite loops
-              if (counter > 100) {
-                skipped.push({
-                  file: file.name,
-                  error: "Too many duplicate files, skipping",
-                  type: "unknown",
-                  canRetry: false,
-                  retryCount: 0,
-                })
-                return
+        // Pre-calculate grand total for progress reporting
+        let djiFilesToImport = 0
+        let panoramaFoldersToImport = 0
+        
+        // Count DJI files to import
+        if (sourceAnalysis.djiFolders.length > 0) {
+          for (const djiFolder of sourceAnalysis.djiFolders) {
+            const djiPath = path.join(sourceAnalysis.dcimPath || sourcePath, djiFolder)
+            try {
+              const folderAnalysis = await analyzeSourceDirectory(djiPath)
+              if (selectedDate) {
+                djiFilesToImport += (folderAnalysis.filesByDate[selectedDate] || []).length
+              } else {
+                djiFilesToImport += folderAnalysis.totalFiles
               }
+            } catch (err) {
+              console.error(`Failed to count files in DJI folder ${djiFolder}:`, err)
             }
+          }
+        }
+        
+        // Count panorama folders to import (with date filtering)
+        if (sourceAnalysis.panoramaFolders.length > 0) {
+          if (selectedDate) {
+            panoramaFoldersToImport = sourceAnalysis.panoramaFolders.filter(
+              folder => sourceAnalysis.panoramaFolderDates[folder] === selectedDate
+            ).length
+          } else {
+            panoramaFoldersToImport = sourceAnalysis.panoramaFolders.length
+          }
+        }
+        
+        const grandTotal = djiFilesToImport + panoramaFoldersToImport
+        console.log(`Grand total items to import: ${grandTotal} (${djiFilesToImport} DJI files, ${panoramaFoldersToImport} panorama folders)`)
 
-            // Check if this is a duplicate (different file with same name)
-            if (targetPath !== originalTargetPath) {
-              warnings.push(`Duplicate filename: ${file.name} → ${path.basename(targetPath)}`)
-            }
+        // Import DJI files (if any DJI folders exist)
+        if (sourceAnalysis.djiFolders.length > 0 && djiFilesToImport > 0) {
+          console.log(`Importing DJI files from folders: ${sourceAnalysis.djiFolders.join(", ")}`)
+          const djiResult = await importDjiFiles(
+            sourceAnalysis.dcimPath || sourcePath,
+            destinationPath,
+            sourceAnalysis.djiFolders,
+            event,
+            0, // totalOffset
+            grandTotal, // grandTotal
+            selectedDate,
+            createDateFolders
+          )
 
-            // Copy the file with retry mechanism
-            const copyResult = await copyFileWithRetry(file.path, targetPath)
+          totalImported += djiResult.imported
+          totalErrors.push(...djiResult.errors)
+          // Skipped items are not tracked
+        }
 
-            if (copyResult.success) {
-              copiedCount++
+        // Import panorama folders (if any exist)
+        if (sourceAnalysis.panoramaFolders.length > 0 && panoramaFoldersToImport > 0) {
+          console.log(`Importing panorama folders: ${sourceAnalysis.panoramaFolders.join(", ")}`)
+          const panoramaResult = await importPanoramaFolders(
+            path.join(sourceAnalysis.dcimPath || sourcePath, "PANORAMA"),
+            destinationPath,
+            sourceAnalysis.panoramaFolders,
+            sourceAnalysis.panoramaFolderDates,
+            event,
+            totalImported, // totalOffset (files already imported)
+            grandTotal, // grandTotal
+            selectedDate
+          )
 
-              // Send progress update
+          totalImported += panoramaResult.imported
+          totalErrors.push(...panoramaResult.errors)
+          // Skipped items are not tracked
+        }
+
+        if (sourceAnalysis.djiFolders.length === 0 && sourceAnalysis.panoramaFolders.length === 0) {
+          return { ok: false, error: "No DJI folders or panorama folders found to import" }
+        }
+      } else {
+        // Standard DCIM import - fall back to original logic
+        console.log("Using standard DCIM import strategy")
+
+        // Check cache first to avoid redundant re-analysis
+        let analysis: AnalyzeResult
+        const cacheKey = sourcePath
+        const cached = analysisCache.get(cacheKey)
+
+        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          console.log(`Using cached analysis for import: ${sourcePath}`)
+          analysis = cached.result
+        } else {
+          console.log(
+            `Cache expired or not found, performing fresh analysis for import: ${sourcePath}`
+          )
+          analysis = await analyzeSourceDirectory(sourcePath)
+          // Update cache with fresh analysis
+          analysisCache.set(cacheKey, { result: analysis, timestamp: Date.now() })
+        }
+
+        // Filter files by date if specified
+        let filesToImport: MediaFileInfo[] = []
+        if (selectedDate) {
+          filesToImport = analysis.filesByDate[selectedDate] || []
+        } else {
+          // Import all files
+          Object.values(analysis.filesByDate).forEach((files) => {
+            filesToImport.push(...files)
+          })
+        }
+
+        if (filesToImport.length === 0) {
+          return { ok: false, error: "No files to import" }
+        }
+
+        // Group files by date for organized copying
+        const filesByDate: Record<string, MediaFileInfo[]> = {}
+        filesToImport.forEach((file) => {
+          if (!filesByDate[file.date]) {
+            filesByDate[file.date] = []
+          }
+          filesByDate[file.date].push(file)
+        })
+
+        for (const [date, files] of Object.entries(filesByDate)) {
+          // Determine directory structure based on createDateFolders option
+          let imagesDir: string
+          let videosDir: string
+
+          if (createDateFolders) {
+            // Create date-based subdirectories
+            const dateFolder = date // Format: YYYY-MM-DD
+            imagesDir = path.join(destinationPath, dateFolder, "IMAGES")
+            videosDir = path.join(destinationPath, dateFolder, "VIDEOS")
+          } else {
+            // Create IMAGES and VIDEOS directly in destination
+            imagesDir = path.join(destinationPath, "IMAGES")
+            videosDir = path.join(destinationPath, "VIDEOS")
+          }
+
+          // Create directories if they don't exist
+          try {
+            await fsp.mkdir(imagesDir, { recursive: true })
+            await fsp.mkdir(videosDir, { recursive: true })
+          } catch (dirError) {
+            const dirErrorObj = categorizeError(dirError, `Directory creation for ${date}`)
+            totalErrors.push(dirErrorObj)
+            continue // Skip this date group
+          }
+
+          // Copy files with optimized concurrency for better performance
+          await mapLimit(files, 8, async (file) => {
+            try {
+              const targetDir = file.type === "image" ? imagesDir : videosDir
+              let targetPath = path.join(targetDir, file.name)
+
+              // Handle duplicates by adding a number suffix
+              let counter = 1
+              let originalTargetPath = targetPath
+              while (
+                await fsp
+                  .access(targetPath)
+                  .then(() => true)
+                  .catch(() => false)
+              ) {
+                const ext = path.extname(file.name)
+                const nameWithoutExt = path.basename(file.name, ext)
+                targetPath = path.join(targetDir, `${nameWithoutExt}_${counter}${ext}`)
+                counter++
+
+                // Prevent infinite loops
+                if (counter > 100) {
+                  // Silently skip without tracking
+                  return
+                }
+              }
+
+              // Check if this is a duplicate (different file with same name)
+              if (targetPath !== originalTargetPath) {
+                totalWarnings.push(
+                  `Duplicate filename: ${file.name} → ${path.basename(targetPath)}`
+                )
+              }
+
+              // Send progress update BEFORE copying to show current file
               const progress: ImportProgress = {
-                current: copiedCount,
+                current: totalImported,
                 total: filesToImport.length,
                 currentFile: file.name,
               }
               event.sender.send("import-progress", progress)
-            } else if (copyResult.error) {
-              if (copyResult.error.canRetry) {
-                errors.push(copyResult.error)
-              } else {
-                skipped.push(copyResult.error)
+              
+              // Copy the file with retry mechanism
+              const copyResult = await copyFileWithRetry(file.path, targetPath)
+
+              if (copyResult.success) {
+                totalImported++
+              } else if (copyResult.error) {
+                if (copyResult.error.canRetry) {
+                  totalErrors.push(copyResult.error)
+                }
+                // Non-retryable errors are silently skipped
               }
+            } catch (err: unknown) {
+              const fileName = path.basename(file.path)
+              const importError = categorizeError(err, fileName)
+              if (importError.canRetry) {
+                totalErrors.push(importError)
+              }
+              // Non-retryable errors are silently skipped
             }
-          } catch (err: unknown) {
-            const fileName = path.basename(file.path)
-            const importError = categorizeError(err, fileName)
-            if (importError.canRetry) {
-              errors.push(importError)
-            } else {
-              skipped.push(importError)
-            }
-          }
-        })
+          })
+        }
       }
 
+      const totalProcessed = totalImported + totalErrors.length + totalSkipped.length
+
       const result: DetailedImportResult = {
-        imported: copiedCount,
-        total: filesToImport.length,
-        errors,
-        skipped,
-        warnings,
+        imported: totalImported,
+        total: totalProcessed,
+        errors: totalErrors,
+        skipped: totalSkipped,
+        warnings: totalWarnings,
       }
 
       return {
