@@ -33,6 +33,8 @@ export default [
         require: "readonly",
         global: "readonly",
         Promise: "readonly",
+        KeyboardEvent: "readonly",
+        HTMLElement: "readonly",
         HTMLDivElement: "readonly",
         HTMLInputElement: "readonly",
         MouseEvent: "readonly",

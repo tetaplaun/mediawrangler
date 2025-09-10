@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import useExplorerStore, {
   useNavigateTo,
   useRefresh,
@@ -53,13 +53,13 @@ export function MenuBar() {
     window.close()
   }
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     refresh()
-  }
+  }, [refresh])
 
-  const handleToggleHiddenFiles = () => {
+  const handleToggleHiddenFiles = useCallback(() => {
     setShowHiddenFiles(!showHiddenFiles)
-  }
+  }, [setShowHiddenFiles, showHiddenFiles])
 
   const handleAbout = () => {
     if (typeof window !== "undefined") {
@@ -98,9 +98,9 @@ export function MenuBar() {
     }
   }
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     setSelectedEntries([...entries])
-  }
+  }, [entries, setSelectedEntries])
 
   const handleInvertSelection = () => {
     const inverted = entries.filter(
@@ -116,9 +116,9 @@ export function MenuBar() {
     setSelectedEntries(filesWithDifferentDate)
   }
 
-  const handleDeselectAll = () => {
+  const handleDeselectAll = useCallback(() => {
     setSelectedEntries([])
-  }
+  }, [setSelectedEntries])
 
   const handleCorrectSelectedFileDates = async () => {
     if (selectedEntries.length === 0) {
@@ -209,6 +209,7 @@ export function MenuBar() {
         {
           label: "Deselect All",
           action: handleDeselectAll,
+          shortcut: "Ctrl+D",
           disabled: selectedEntries.length === 0,
         },
         {
@@ -271,6 +272,54 @@ export function MenuBar() {
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
   }, [activeMenu])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle shortcuts when not typing in an input field
+      const target = event.target as HTMLElement
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.contentEditable === "true"
+      ) {
+        return
+      }
+
+      const isCtrl = event.ctrlKey || event.metaKey
+
+      // Ctrl+A: Select All
+      if (isCtrl && event.key === "a") {
+        event.preventDefault()
+        handleSelectAll()
+        return
+      }
+
+      // Ctrl+H: Toggle Hidden Files
+      if (isCtrl && event.key === "h") {
+        event.preventDefault()
+        handleToggleHiddenFiles()
+        return
+      }
+
+      // Ctrl+D: Deselect All
+      if (isCtrl && event.key === "d") {
+        event.preventDefault()
+        handleDeselectAll()
+        return
+      }
+
+      // F5: Refresh
+      if (event.key === "F5") {
+        event.preventDefault()
+        handleRefresh()
+        return
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [handleSelectAll, handleToggleHiddenFiles, handleDeselectAll, handleRefresh])
 
   const handleMenuClick = (menuLabel: string) => {
     setActiveMenu(activeMenu === menuLabel ? null : menuLabel)
