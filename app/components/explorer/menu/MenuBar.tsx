@@ -62,8 +62,13 @@ export function MenuBar() {
   }, [setShowHiddenFiles, showHiddenFiles])
 
   const handleAbout = () => {
-    if (typeof window !== "undefined") {
-      window.alert("MediaWrangler v0.1.0\nA media file explorer and organizer")
+    if (typeof window !== "undefined" && window.electronAPI?.showMessageBox) {
+      window.electronAPI.showMessageBox({
+        type: "info",
+        title: "About Media Wrangler",
+        message: "Media Wrangler v0.1.0",
+        detail: "A media file explorer and organizer",
+      })
     }
   }
 
@@ -122,8 +127,12 @@ export function MenuBar() {
 
   const handleCorrectSelectedFileDates = async () => {
     if (selectedEntries.length === 0) {
-      if (typeof window !== "undefined") {
-        window.alert("No files selected. Please select files first.")
+      if (typeof window !== "undefined" && window.electronAPI?.showMessageBox) {
+        window.electronAPI.showMessageBox({
+          type: "warning",
+          title: "No Files Selected",
+          message: "Please select files first before correcting dates.",
+        })
       }
       return
     }
@@ -134,18 +143,31 @@ export function MenuBar() {
     )
 
     if (filesToCorrect.length === 0) {
-      if (typeof window !== "undefined") {
-        window.alert("No selected files have different dates to correct.")
+      if (typeof window !== "undefined" && window.electronAPI?.showMessageBox) {
+        window.electronAPI.showMessageBox({
+          type: "info",
+          title: "No Files to Correct",
+          message: "All selected files already have matching dates.",
+        })
       }
       return
     }
 
     // Confirm the operation
-    const confirmed =
-      typeof window !== "undefined" &&
-      window.confirm(
-        `Correct file dates for ${filesToCorrect.length} selected file(s)?\n\nThis will update the file modification dates to match the encoded dates from the media metadata.`
-      )
+    let confirmed = false
+    if (typeof window !== "undefined" && window.electronAPI?.showMessageBox) {
+      const result = await window.electronAPI.showMessageBox({
+        type: "question",
+        title: "Confirm Date Correction",
+        message: `Correct file dates for ${filesToCorrect.length} selected file(s)?`,
+        detail:
+          "This will update the file modification dates to match the encoded dates from the media metadata.",
+        buttons: ["Cancel", "Correct Dates"],
+        defaultId: 1,
+        cancelId: 0,
+      })
+      confirmed = result.response === 1
+    }
 
     if (!confirmed) return
 
@@ -177,13 +199,20 @@ export function MenuBar() {
     refresh()
 
     // Show results
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && window.electronAPI?.showMessageBox) {
       if (errorCount === 0) {
-        window.alert(`Successfully corrected dates for ${successCount} file(s).`)
+        window.electronAPI.showMessageBox({
+          type: "info",
+          title: "Success",
+          message: `Successfully corrected dates for ${successCount} file(s).`,
+        })
       } else {
-        window.alert(
-          `Corrected dates for ${successCount} file(s).\nFailed to correct ${errorCount} file(s). Check console for details.`
-        )
+        window.electronAPI.showMessageBox({
+          type: "warning",
+          title: "Partial Success",
+          message: `Corrected dates for ${successCount} file(s).`,
+          detail: `Failed to correct ${errorCount} file(s). Check console for details.`,
+        })
       }
     }
   }

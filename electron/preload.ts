@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron"
 
 contextBridge.exposeInMainWorld("electronAPI", {
   ping: async () => ipcRenderer.invoke("app:ping"),
+  showMessageBox: (options: any) => ipcRenderer.invoke("app:showMessageBox", options),
   fs: {
     getDrives: () => ipcRenderer.invoke("fs:getDrives"),
     getQuickLinks: () => ipcRenderer.invoke("fs:getQuickLinks"),

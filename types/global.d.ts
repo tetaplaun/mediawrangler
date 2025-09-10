@@ -4,6 +4,15 @@ declare global {
   interface Window {
     electronAPI: {
       ping: () => Promise<string>
+      showMessageBox: (options: {
+        type?: "none" | "info" | "error" | "question" | "warning"
+        title?: string
+        message: string
+        detail?: string
+        buttons?: string[]
+        defaultId?: number
+        cancelId?: number
+      }) => Promise<{ response: number; checkboxChecked?: boolean }>
       fs: {
         getDrives: () => Promise<Array<{ name: string; path: string; type: "drive" }>>
         getQuickLinks: () => Promise<
@@ -52,7 +61,10 @@ declare global {
           data?: Array<{ path: string; mediaInfo?: any }>
           error?: string
         }>
-        updateFileDate: (filePath: string, dateString: string) => Promise<{ ok: boolean; error?: string }>
+        updateFileDate: (
+          filePath: string,
+          dateString: string
+        ) => Promise<{ ok: boolean; error?: string }>
         createFolder: (folderPath: string) => Promise<{ ok: boolean; error?: string }>
         deleteItem: (itemPath: string) => Promise<{ ok: boolean; error?: string }>
       }

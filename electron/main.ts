@@ -58,6 +58,8 @@ function createMainWindow(): BrowserWindow {
     width: 1200,
     height: 800,
     backgroundColor: "#0b0b0e",
+    title: "Media Wrangler",
+    titleBarStyle: "default",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -77,7 +79,14 @@ function createMainWindow(): BrowserWindow {
   }
 
   mainWindow.once("ready-to-show", () => {
+    mainWindow.setTitle("Media Wrangler")
     mainWindow.show()
+  })
+
+  // Ensure the title stays as "Media Wrangler" even if the page tries to change it
+  mainWindow.on("page-title-updated", (event) => {
+    event.preventDefault()
+    mainWindow.setTitle("Media Wrangler")
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -107,6 +116,16 @@ app.on("window-all-closed", () => {
 // Example secure IPC ping
 ipcMain.handle("app:ping", async () => {
   return "pong"
+})
+
+// Show native message box dialog
+ipcMain.handle("app:showMessageBox", async (_e: IpcMainInvokeEvent, options: any) => {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  if (focusedWindow) {
+    return await dialog.showMessageBox(focusedWindow, options)
+  } else {
+    return await dialog.showMessageBox(options)
+  }
 })
 
 // ------ Media Info Functions ------
@@ -722,21 +741,24 @@ ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths:
   }
 })
 
-ipcMain.handle("fs:updateFileDate", async (_e: IpcMainInvokeEvent, filePath: string, dateString: string) => {
-  try {
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) {
-      return { ok: false, error: "Invalid date format" }
-    }
+ipcMain.handle(
+  "fs:updateFileDate",
+  async (_e: IpcMainInvokeEvent, filePath: string, dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) {
+        return { ok: false, error: "Invalid date format" }
+      }
 
-    // Use utimes to update the file's modification time
-    // We set both atime and mtime to the encoded date
-    await fsp.utimes(filePath, date, date)
-    return { ok: true }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+      // Use utimes to update the file's modification time
+      // We set both atime and mtime to the encoded date
+      await fsp.utimes(filePath, date, date)
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, error: error?.message || String(error) }
+    }
   }
-})
+)
 
 // Simple concurrency limiter
 async function mapLimit<T, R>(

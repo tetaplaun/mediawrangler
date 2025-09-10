@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "com.mediawrangler.app",
-    "productName": "MediaWrangler",
+    "productName": "Media Wrangler",
     "files": [
       "dist/**/*",
       "package.json",
@@ -42,11 +42,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "verifyUpdateCodeSignature": false,

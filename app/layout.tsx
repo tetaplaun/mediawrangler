@@ -2,7 +2,7 @@ import "./globals.css"
 import React from "react"
 
 export const metadata = {
-  title: "MediaWrangler",
+  title: "Media Wrangler",
   description: "Next.js + Tailwind + Electron starter",
 }
 
