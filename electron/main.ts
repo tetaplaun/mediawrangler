@@ -154,6 +154,15 @@ const IMAGE_EXTENSIONS = new Set([
   "ico",
   "heic",
   "heif",
+  "dng",
+  "raw",
+  "cr2",
+  "cr3",
+  "nef",
+  "arw",
+  "orf",
+  "rw2",
+  "raf",
 ])
 
 function isVideoFile(ext: string | null): boolean {
@@ -759,6 +768,248 @@ ipcMain.handle(
     }
   }
 )
+
+// Import functionality
+interface MediaFileInfo {
+  path: string
+  name: string
+  type: "image" | "video"
+  size: number
+  date: string
+  encodedDate?: string
+  modifiedMs: number
+}
+
+interface AnalyzeResult {
+  filesByDate: Record<string, MediaFileInfo[]>
+  totalFiles: number
+  totalSize: number
+  dates: string[]
+}
+
+async function analyzeSourceDirectory(sourcePath: string, event?: IpcMainInvokeEvent): Promise<AnalyzeResult> {
+  const filesByDate: Record<string, MediaFileInfo[]> = {}
+  let totalFiles = 0
+  let totalSize = 0
+  let scannedFiles = 0
+  let scannedDirs = 0
+
+  async function scanDirectory(dirPath: string): Promise<void> {
+    try {
+      const dirents = await fsp.readdir(dirPath, { withFileTypes: true })
+      
+      await mapLimit(dirents, 10, async (dirent) => {
+        const fullPath = path.join(dirPath, dirent.name)
+        
+        if (dirent.isDirectory()) {
+          scannedDirs++
+          // Send progress update for directory scanning
+          if (event) {
+            event.sender.send("analyze-progress", {
+              type: "scanning",
+              scannedFiles,
+              scannedDirs,
+              foundMediaFiles: totalFiles,
+              currentPath: fullPath
+            })
+          }
+          await scanDirectory(fullPath)
+        } else if (dirent.isFile()) {
+          scannedFiles++
+          const ext = path.extname(dirent.name).replace(/^\./, "").toLowerCase()
+          
+          if (isMediaFile(ext)) {
+            const stats = await fsp.stat(fullPath)
+            const mediaInfo = await getMediaInfo(fullPath, ext)
+            
+            // Determine the date to use for grouping
+            let dateStr: string
+            if (mediaInfo?.encodedDate) {
+              dateStr = new Date(mediaInfo.encodedDate).toISOString().split('T')[0]
+            } else {
+              // Fallback to file modification date
+              dateStr = new Date(stats.mtime).toISOString().split('T')[0]
+            }
+            
+            const fileInfo: MediaFileInfo = {
+              path: fullPath,
+              name: dirent.name,
+              type: isImageFile(ext) ? "image" : "video",
+              size: stats.size,
+              date: dateStr,
+              encodedDate: mediaInfo?.encodedDate,
+              modifiedMs: stats.mtimeMs
+            }
+            
+            if (!filesByDate[dateStr]) {
+              filesByDate[dateStr] = []
+            }
+            filesByDate[dateStr].push(fileInfo)
+            totalFiles++
+            totalSize += stats.size
+            
+            // Send progress update for found media files
+            if (event && totalFiles % 10 === 0) {
+              event.sender.send("analyze-progress", {
+                type: "scanning",
+                scannedFiles,
+                scannedDirs,
+                foundMediaFiles: totalFiles,
+                currentPath: fullPath
+              })
+            }
+          }
+        }
+      })
+    } catch (err) {
+      console.error(`Error scanning directory ${dirPath}:`, err)
+    }
+  }
+
+  await scanDirectory(sourcePath)
+  
+  // Send final progress update
+  if (event) {
+    event.sender.send("analyze-progress", {
+      type: "complete",
+      scannedFiles,
+      scannedDirs,
+      foundMediaFiles: totalFiles,
+      currentPath: sourcePath
+    })
+  }
+  
+  const dates = Object.keys(filesByDate).sort()
+  
+  return {
+    filesByDate,
+    totalFiles,
+    totalSize,
+    dates
+  }
+}
+
+interface ImportProgress {
+  current: number
+  total: number
+  currentFile: string
+}
+
+ipcMain.handle("fs:analyzeSource", async (event: IpcMainInvokeEvent, sourcePath: string) => {
+  try {
+    const result = await analyzeSourceDirectory(sourcePath, event)
+    return { ok: true, data: result }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:importMedia", async (
+  event: IpcMainInvokeEvent,
+  sourcePath: string,
+  destinationPath: string,
+  selectedDate?: string,
+  createDateFolders: boolean = false
+) => {
+  try {
+    const analysis = await analyzeSourceDirectory(sourcePath)
+    
+    // Filter files by date if specified
+    let filesToImport: MediaFileInfo[] = []
+    if (selectedDate) {
+      filesToImport = analysis.filesByDate[selectedDate] || []
+    } else {
+      // Import all files
+      Object.values(analysis.filesByDate).forEach(files => {
+        filesToImport.push(...files)
+      })
+    }
+    
+    if (filesToImport.length === 0) {
+      return { ok: false, error: "No files to import" }
+    }
+    
+    let copiedCount = 0
+    const errors: string[] = []
+    
+    // Group files by date for organized copying
+    const filesByDate: Record<string, MediaFileInfo[]> = {}
+    filesToImport.forEach(file => {
+      if (!filesByDate[file.date]) {
+        filesByDate[file.date] = []
+      }
+      filesByDate[file.date].push(file)
+    })
+    
+    for (const [date, files] of Object.entries(filesByDate)) {
+      // Determine directory structure based on createDateFolders option
+      let imagesDir: string
+      let videosDir: string
+      
+      if (createDateFolders) {
+        // Create date-based subdirectories
+        const dateFolder = date // Format: YYYY-MM-DD
+        imagesDir = path.join(destinationPath, dateFolder, "IMAGES")
+        videosDir = path.join(destinationPath, dateFolder, "VIDEOS")
+      } else {
+        // Create IMAGES and VIDEOS directly in destination
+        imagesDir = path.join(destinationPath, "IMAGES")
+        videosDir = path.join(destinationPath, "VIDEOS")
+      }
+      
+      // Create directories if they don't exist
+      await fsp.mkdir(imagesDir, { recursive: true })
+      await fsp.mkdir(videosDir, { recursive: true })
+      
+      // Copy files
+      await mapLimit(files, 5, async (file) => {
+        try {
+          const targetDir = file.type === "image" ? imagesDir : videosDir
+          let targetPath = path.join(targetDir, file.name)
+          
+          // Handle duplicates by adding a number suffix
+          let counter = 1
+          while (await fsp.access(targetPath).then(() => true).catch(() => false)) {
+            const ext = path.extname(file.name)
+            const nameWithoutExt = path.basename(file.name, ext)
+            targetPath = path.join(targetDir, `${nameWithoutExt}_${counter}${ext}`)
+            counter++
+          }
+          
+          // Copy the file
+          await fsp.copyFile(file.path, targetPath)
+          
+          // Preserve the original dates
+          const stats = await fsp.stat(file.path)
+          await fsp.utimes(targetPath, stats.atime, stats.mtime)
+          
+          copiedCount++
+          
+          // Send progress update
+          const progress: ImportProgress = {
+            current: copiedCount,
+            total: filesToImport.length,
+            currentFile: file.name
+          }
+          event.sender.send("import-progress", progress)
+        } catch (err: any) {
+          errors.push(`Failed to copy ${file.name}: ${err.message}`)
+        }
+      })
+    }
+    
+    return {
+      ok: true,
+      data: {
+        imported: copiedCount,
+        total: filesToImport.length,
+        errors: errors.length > 0 ? errors : undefined
+      }
+    }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
 
 // Simple concurrency limiter
 async function mapLimit<T, R>(

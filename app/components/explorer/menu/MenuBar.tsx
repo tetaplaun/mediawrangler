@@ -6,6 +6,7 @@ import useExplorerStore, {
   useRefresh,
   useSortedEntries,
 } from "../store/explorerStore"
+import { ImportDialog } from "../dialogs/ImportDialog"
 
 interface MenuItem {
   label?: string
@@ -33,6 +34,8 @@ export function MenuBar() {
   const setShowHiddenFiles = useExplorerStore((state) => state.setShowHiddenFiles)
   const setSelectedEntries = useExplorerStore((state) => state.setSelectedEntries)
   const selectedEntries = useExplorerStore((state) => state.selectedEntries)
+  const showImportDialog = useExplorerStore((state) => state.showImportDialog)
+  const setShowImportDialog = useExplorerStore((state) => state.setShowImportDialog)
 
   const handleNewWindow = () => {
     // Open new window functionality - to be implemented
@@ -51,6 +54,14 @@ export function MenuBar() {
 
   const handleExit = () => {
     window.close()
+  }
+  
+  const handleImport = () => {
+    setShowImportDialog(true)
+  }
+  
+  const handleImportComplete = () => {
+    refresh()
   }
 
   const handleRefresh = useCallback(() => {
@@ -224,6 +235,8 @@ export function MenuBar() {
         { label: "New Window", action: handleNewWindow, shortcut: "Ctrl+N" },
         { label: "Open Folder...", action: handleOpenFolder, shortcut: "Ctrl+O" },
         { divider: true },
+        { label: "Import Media...", action: handleImport, shortcut: "Ctrl+I" },
+        { divider: true },
         { label: "Exit", action: handleExit, shortcut: "Alt+F4" },
       ],
     },
@@ -369,48 +382,56 @@ export function MenuBar() {
   }
 
   return (
-    <div
-      ref={menuRef}
-      className="flex items-center bg-[#2d2d2d] border-b border-[#3a3a3a] select-none"
-    >
-      {menus.map((menu) => (
-        <div key={menu.label} className="relative">
-          <button
-            className={`px-4 py-1.5 text-sm hover:bg-[#3a3a3a] transition-colors ${
-              activeMenu === menu.label ? "bg-[#3a3a3a]" : ""
-            }`}
-            onClick={() => handleMenuClick(menu.label)}
-            onMouseEnter={() => handleMenuHover(menu.label)}
-            onMouseLeave={() => setHoveredMenu(null)}
-          >
-            {menu.label}
-          </button>
+    <>
+      <div
+        ref={menuRef}
+        className="flex items-center bg-[#2d2d2d] border-b border-[#3a3a3a] select-none"
+      >
+        {menus.map((menu) => (
+          <div key={menu.label} className="relative">
+            <button
+              className={`px-4 py-1.5 text-sm hover:bg-[#3a3a3a] transition-colors ${
+                activeMenu === menu.label ? "bg-[#3a3a3a]" : ""
+              }`}
+              onClick={() => handleMenuClick(menu.label)}
+              onMouseEnter={() => handleMenuHover(menu.label)}
+              onMouseLeave={() => setHoveredMenu(null)}
+            >
+              {menu.label}
+            </button>
 
-          {activeMenu === menu.label && (
-            <div className="absolute left-0 top-full z-50 min-w-[200px] bg-[#2d2d2d] border border-[#3a3a3a] shadow-lg">
-              {menu.items.map((item, index) =>
-                item.divider ? (
-                  <div key={index} className="my-1 border-t border-[#3a3a3a]" />
-                ) : (
-                  <button
-                    key={index}
-                    className={`w-full px-4 py-1.5 text-sm text-left flex justify-between items-center hover:bg-[#3a3a3a] transition-colors ${
-                      item.disabled ? "opacity-50 cursor-default" : ""
-                    }`}
-                    onClick={() => handleMenuItemClick(item)}
-                    disabled={item.disabled}
-                  >
-                    <span>{item.label}</span>
-                    {item.shortcut && (
-                      <span className="text-xs text-gray-400 ml-8">{item.shortcut}</span>
-                    )}
-                  </button>
-                )
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
+            {activeMenu === menu.label && (
+              <div className="absolute left-0 top-full z-50 min-w-[200px] bg-[#2d2d2d] border border-[#3a3a3a] shadow-lg">
+                {menu.items.map((item, index) =>
+                  item.divider ? (
+                    <div key={index} className="my-1 border-t border-[#3a3a3a]" />
+                  ) : (
+                    <button
+                      key={index}
+                      className={`w-full px-4 py-1.5 text-sm text-left flex justify-between items-center hover:bg-[#3a3a3a] transition-colors ${
+                        item.disabled ? "opacity-50 cursor-default" : ""
+                      }`}
+                      onClick={() => handleMenuItemClick(item)}
+                      disabled={item.disabled}
+                    >
+                      <span>{item.label}</span>
+                      {item.shortcut && (
+                        <span className="text-xs text-gray-400 ml-8">{item.shortcut}</span>
+                      )}
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      
+      <ImportDialog
+        isOpen={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onImportComplete={handleImportComplete}
+      />
+    </>
   )
 }

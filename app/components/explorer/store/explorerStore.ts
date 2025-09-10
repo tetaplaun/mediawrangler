@@ -33,6 +33,9 @@ interface ExplorerState {
   sortOrder: "asc" | "desc"
   showHiddenFiles: boolean
   selectedEntries: Entry[]
+  
+  // Import dialog state
+  showImportDialog: boolean
 
   // Computed values
   filteredEntries: Entry[]
@@ -68,6 +71,9 @@ interface ExplorerActions {
 
   // Media info actions
   loadMediaInfo: () => Promise<void>
+  
+  // Import dialog actions
+  setShowImportDialog: (show: boolean) => void
 
   // Internal actions
   load: (path: string) => Promise<void>
@@ -99,6 +105,7 @@ const useExplorerStore = create<ExplorerStore>()(
         sortOrder: "asc",
         showHiddenFiles: false,
         selectedEntries: [],
+        showImportDialog: false,
         filteredEntries: [],
         sortedEntries: [],
 
@@ -280,6 +287,13 @@ const useExplorerStore = create<ExplorerStore>()(
             } else {
               state.selectedEntries.push(entry)
             }
+          })
+        },
+        
+        // Set import dialog visibility
+        setShowImportDialog: (show: boolean) => {
+          set((state) => {
+            state.showImportDialog = show
           })
         },
 

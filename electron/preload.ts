@@ -28,5 +28,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("fs:updateFileDate", filePath, dateString),
     createFolder: (folderPath: string) => ipcRenderer.invoke("fs:createFolder", folderPath),
     deleteItem: (itemPath: string) => ipcRenderer.invoke("fs:deleteItem", itemPath),
+    analyzeSource: (sourcePath: string) => ipcRenderer.invoke("fs:analyzeSource", sourcePath),
+    importMedia: (sourcePath: string, destinationPath: string, selectedDate?: string, createDateFolders?: boolean) =>
+      ipcRenderer.invoke("fs:importMedia", sourcePath, destinationPath, selectedDate, createDateFolders),
+  },
+  onImportProgress: (callback: (progress: any) => void) => {
+    ipcRenderer.on("import-progress", (_event, progress) => callback(progress))
+    return () => ipcRenderer.removeAllListeners("import-progress")
+  },
+  onAnalyzeProgress: (callback: (progress: any) => void) => {
+    ipcRenderer.on("analyze-progress", (_event, progress) => callback(progress))
+    return () => ipcRenderer.removeAllListeners("analyze-progress")
   },
 })
