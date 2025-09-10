@@ -24,13 +24,13 @@ export function ButtonBar() {
 
   const handleNewFolder = async () => {
     if (!canModifyFolder) return
-    
+
     const folderName = prompt("Enter folder name:")
     if (!folderName) return
-    
+
     try {
-      const folderPath = await window.electronAPI.joinPath(currentPath, folderName)
-      await window.electronAPI.createFolder?.(folderPath)
+      const folderPath = await window.electronAPI.fs.joinPath(currentPath, folderName)
+      await window.electronAPI.fs.createFolder?.(folderPath)
       refresh()
     } catch (error) {
       console.error("Failed to create folder:", error)
@@ -40,17 +40,16 @@ export function ButtonBar() {
 
   const handleDelete = async () => {
     if (!hasSelection) return
-    
+
     const count = selectedEntries.length
-    const message = count === 1 
-      ? `Delete "${selectedEntries[0].name}"?`
-      : `Delete ${count} selected items?`
-    
+    const message =
+      count === 1 ? `Delete "${selectedEntries[0].name}"?` : `Delete ${count} selected items?`
+
     if (!confirm(message)) return
-    
+
     try {
       for (const entry of selectedEntries) {
-        await window.electronAPI.deleteItem?.(entry.path)
+        await window.electronAPI.fs.deleteItem?.(entry.path)
       }
       refresh()
     } catch (error) {
@@ -183,9 +182,7 @@ export function ButtonBar() {
                 onClick={() => handleSortChange(field)}
               >
                 <span className="capitalize">{field}</span>
-                {sortBy === field && (
-                  <span>{sortOrder === "asc" ? "↑" : "↓"}</span>
-                )}
+                {sortBy === field && <span>{sortOrder === "asc" ? "↑" : "↓"}</span>}
               </button>
             ))}
           </div>

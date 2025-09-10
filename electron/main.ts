@@ -111,8 +111,31 @@ ipcMain.handle("app:ping", async () => {
 
 // ------ Media Info Functions ------
 
-const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv'])
-const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'heic', 'heif'])
+const VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "mov",
+  "mkv",
+  "avi",
+  "webm",
+  "m4v",
+  "mpg",
+  "mpeg",
+  "wmv",
+  "flv",
+])
+const IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "bmp",
+  "svg",
+  "tiff",
+  "ico",
+  "heic",
+  "heif",
+])
 
 function isVideoFile(ext: string | null): boolean {
   return ext ? VIDEO_EXTENSIONS.has(ext.toLowerCase()) : false
@@ -129,19 +152,22 @@ function isMediaFile(ext: string | null): boolean {
 async function getDateFromExifTool(filePath: string): Promise<string | null> {
   try {
     // Use exiftool to extract date fields - it handles HEIC files properly
-    const { stdout } = await execAsync(`exiftool -DateTimeOriginal -CreateDate -ModifyDate -CreationDate -MediaCreateDate -json "${filePath}"`)
-    
+    const { stdout } = await execAsync(
+      `exiftool -DateTimeOriginal -CreateDate -ModifyDate -CreationDate -MediaCreateDate -json "${filePath}"`
+    )
+
     const data = JSON.parse(stdout)
     if (data && data[0]) {
       const exif = data[0]
-      
+
       // Try various date fields in order of preference
-      const dateStr = exif.DateTimeOriginal || 
-                      exif.CreateDate || 
-                      exif.MediaCreateDate ||
-                      exif.CreationDate ||
-                      exif.ModifyDate
-      
+      const dateStr =
+        exif.DateTimeOriginal ||
+        exif.CreateDate ||
+        exif.MediaCreateDate ||
+        exif.CreationDate ||
+        exif.ModifyDate
+
       if (dateStr) {
         // ExifTool returns dates in format like "2024:08:23 14:30:45"
         // Convert to ISO format
@@ -168,20 +194,20 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
         return
       }
 
-      const videoStream = metadata.streams?.find(s => s.codec_type === 'video')
+      const videoStream = metadata.streams?.find((s) => s.codec_type === "video")
       const mediaInfo: MediaInfo = {}
 
       // Dimensions
       if (videoStream?.width && videoStream?.height) {
         mediaInfo.dimensions = {
           width: videoStream.width,
-          height: videoStream.height
+          height: videoStream.height,
         }
       }
 
       // Frame rate
       if (videoStream?.r_frame_rate) {
-        const [num, den] = videoStream.r_frame_rate.split('/').map(Number)
+        const [num, den] = videoStream.r_frame_rate.split("/").map(Number)
         if (num && den) {
           mediaInfo.frameRate = Math.round((num / den) * 100) / 100
         }
@@ -189,30 +215,32 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
 
       // Duration
       if (metadata.format?.duration) {
-        mediaInfo.duration = typeof metadata.format.duration === 'string' 
-          ? parseFloat(metadata.format.duration)
-          : metadata.format.duration
+        mediaInfo.duration =
+          typeof metadata.format.duration === "string"
+            ? parseFloat(metadata.format.duration)
+            : metadata.format.duration
       }
 
       // Bit rate
       if (metadata.format?.bit_rate) {
-        mediaInfo.bitRate = typeof metadata.format.bit_rate === 'string'
-          ? parseInt(metadata.format.bit_rate)
-          : metadata.format.bit_rate
+        mediaInfo.bitRate =
+          typeof metadata.format.bit_rate === "string"
+            ? parseInt(metadata.format.bit_rate)
+            : metadata.format.bit_rate
       }
 
       // Format - clean up comma-separated list for MOV/MP4 family
       if (metadata.format?.format_name) {
         const formatName = metadata.format.format_name
-        
+
         // Common MOV/MP4 family format string
-        if (formatName === 'mov,mp4,m4a,3gp,3g2,mj2') {
+        if (formatName === "mov,mp4,m4a,3gp,3g2,mj2") {
           // Use the file extension as the format for cleaner display
-          const ext = path.extname(filePath).replace(/^\./, '').toUpperCase()
-          mediaInfo.format = ext || 'MP4'
-        } else if (formatName.includes(',')) {
+          const ext = path.extname(filePath).replace(/^\./, "").toUpperCase()
+          mediaInfo.format = ext || "MP4"
+        } else if (formatName.includes(",")) {
           // For other comma-separated formats, use the first one
-          mediaInfo.format = formatName.split(',')[0].toUpperCase()
+          mediaInfo.format = formatName.split(",")[0].toUpperCase()
         } else {
           mediaInfo.format = formatName.toUpperCase()
         }
@@ -226,9 +254,8 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
       // Encoded date
       if (metadata.format?.tags?.creation_time) {
         const creationTime = metadata.format.tags.creation_time
-        mediaInfo.encodedDate = typeof creationTime === 'string' 
-          ? creationTime 
-          : String(creationTime)
+        mediaInfo.encodedDate =
+          typeof creationTime === "string" ? creationTime : String(creationTime)
       }
 
       resolve(mediaInfo)
@@ -239,8 +266,8 @@ async function getVideoInfo(filePath: string): Promise<MediaInfo> {
 async function getImageInfo(filePath: string): Promise<MediaInfo> {
   const mediaInfo: MediaInfo = {}
   const ext = path.extname(filePath).toLowerCase()
-  const isHEIC = ext === '.heic' || ext === '.heif'
-  
+  const isHEIC = ext === ".heic" || ext === ".heif"
+
   // Get dimensions and format using image-size (faster)
   try {
     const buffer = await fsp.readFile(filePath)
@@ -249,7 +276,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
     if (dimensions.width && dimensions.height) {
       mediaInfo.dimensions = {
         width: dimensions.width,
-        height: dimensions.height
+        height: dimensions.height,
       }
     }
 
@@ -267,26 +294,35 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
       mediaInfo.encodedDate = exifToolDate
     }
   }
-  
+
   // If not HEIC or ExifTool failed, try exifr
   if (!mediaInfo.encodedDate) {
     try {
       const exifOptions = {
-        pick: ['DateTimeOriginal', 'CreateDate', 'DateTime', 'ModifyDate', 'DateCreated', 
-               'DateTimeDigitized', 'SubSecTimeOriginal', 'SubSecTime']
+        pick: [
+          "DateTimeOriginal",
+          "CreateDate",
+          "DateTime",
+          "ModifyDate",
+          "DateCreated",
+          "DateTimeDigitized",
+          "SubSecTimeOriginal",
+          "SubSecTime",
+        ],
       }
-      
+
       const exifData = await exifr.parse(filePath, exifOptions)
-      
+
       if (exifData) {
         // Try various date fields that might exist in EXIF
-        const dateField = exifData.DateTimeOriginal || 
-                         exifData.CreateDate || 
-                         exifData.DateTimeDigitized ||
-                         exifData.DateTime ||
-                         exifData.ModifyDate ||
-                         exifData.DateCreated
-        
+        const dateField =
+          exifData.DateTimeOriginal ||
+          exifData.CreateDate ||
+          exifData.DateTimeDigitized ||
+          exifData.DateTime ||
+          exifData.ModifyDate ||
+          exifData.DateCreated
+
         if (dateField) {
           // Convert Date object or string to ISO string
           if (dateField instanceof Date) {
@@ -299,7 +335,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
     } catch (err) {
       // Silently fail - exifr might not support all formats
     }
-    
+
     // Fallback to ffprobe for HEIC files if still no date
     if (isHEIC && !mediaInfo.encodedDate) {
       try {
@@ -309,43 +345,42 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
               resolve()
               return
             }
-            
+
             // Try to extract creation date from format tags
             if (metadata.format?.tags) {
               const tags = metadata.format.tags
-              
-              const dateField = tags.creation_time || 
-                               tags['com.apple.quicktime.creationdate'] ||
-                               tags['com.apple.quicktime.creation_date'] ||
-                               tags.creation_date ||
-                               tags.date
-              
+
+              const dateField =
+                tags.creation_time ||
+                tags["com.apple.quicktime.creationdate"] ||
+                tags["com.apple.quicktime.creation_date"] ||
+                tags.creation_date ||
+                tags.date
+
               if (dateField) {
-                mediaInfo.encodedDate = typeof dateField === 'string' 
-                  ? dateField 
-                  : String(dateField)
+                mediaInfo.encodedDate =
+                  typeof dateField === "string" ? dateField : String(dateField)
               }
             }
-            
+
             // Also check stream tags
             if (!mediaInfo.encodedDate && metadata.streams) {
               for (const stream of metadata.streams) {
                 if (stream.tags) {
-                  const streamDate = stream.tags.creation_time || 
-                                    stream.tags['com.apple.quicktime.creationdate'] ||
-                                    stream.tags.creation_date
+                  const streamDate =
+                    stream.tags.creation_time ||
+                    stream.tags["com.apple.quicktime.creationdate"] ||
+                    stream.tags.creation_date
                   if (streamDate) {
-                    mediaInfo.encodedDate = typeof streamDate === 'string' 
-                      ? streamDate 
-                      : String(streamDate)
+                    mediaInfo.encodedDate =
+                      typeof streamDate === "string" ? streamDate : String(streamDate)
                     break
                   }
                 }
               }
             }
-            
+
             if (!mediaInfo.encodedDate) {
-              
               // Ultimate fallback: use file creation time
               try {
                 const stats = await fsp.stat(filePath)
@@ -358,7 +393,7 @@ async function getImageInfo(filePath: string): Promise<MediaInfo> {
                 // Silently fail - file stats not available
               }
             }
-            
+
             resolve()
           })
         })
@@ -383,7 +418,7 @@ async function getMediaInfo(filePath: string, ext: string | null): Promise<Media
       return await getImageInfo(filePath)
     }
   } catch (err) {
-    console.error('Error getting media info:', err)
+    console.error("Error getting media info:", err)
   }
 
   return undefined
@@ -498,10 +533,10 @@ async function listDirectory(targetPath: string): Promise<ListDirectoryResult> {
       } catch (_) {}
     }
     const ext = !isDirectory ? path.extname(d.name).replace(/^\./, "").toLowerCase() : null
-    
+
     // Don't fetch media info during initial load for performance
     // Media info will be loaded asynchronously after directory listing
-    
+
     return {
       name: d.name,
       path: entryPath,
@@ -555,14 +590,17 @@ ipcMain.handle("fs:openPath", async (_e: IpcMainInvokeEvent, targetPath: string)
 })
 
 // Quick link management IPC handlers
-ipcMain.handle("fs:addQuickLink", async (_e: IpcMainInvokeEvent, name: string, targetPath: string) => {
-  try {
-    const link = quickLinksStore.add(name, targetPath)
-    return { ok: true, data: link }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
+ipcMain.handle(
+  "fs:addQuickLink",
+  async (_e: IpcMainInvokeEvent, name: string, targetPath: string) => {
+    try {
+      const link = quickLinksStore.add(name, targetPath)
+      return { ok: true, data: link }
+    } catch (error: any) {
+      return { ok: false, error: error?.message || String(error) }
+    }
   }
-})
+)
 
 ipcMain.handle("fs:removeQuickLink", async (_e: IpcMainInvokeEvent, id: string) => {
   try {
@@ -573,17 +611,20 @@ ipcMain.handle("fs:removeQuickLink", async (_e: IpcMainInvokeEvent, id: string) 
   }
 })
 
-ipcMain.handle("fs:updateQuickLink", async (_e: IpcMainInvokeEvent, id: string, updates: { name?: string; path?: string }) => {
-  try {
-    const link = quickLinksStore.update(id, updates)
-    if (!link) {
-      return { ok: false, error: "Quick link not found" }
+ipcMain.handle(
+  "fs:updateQuickLink",
+  async (_e: IpcMainInvokeEvent, id: string, updates: { name?: string; path?: string }) => {
+    try {
+      const link = quickLinksStore.update(id, updates)
+      if (!link) {
+        return { ok: false, error: "Quick link not found" }
+      }
+      return { ok: true, data: link }
+    } catch (error: any) {
+      return { ok: false, error: error?.message || String(error) }
     }
-    return { ok: true, data: link }
-  } catch (error: any) {
-    return { ok: false, error: error?.message || String(error) }
   }
-})
+)
 
 ipcMain.handle("fs:reorderQuickLinks", async (_e: IpcMainInvokeEvent, orderedIds: string[]) => {
   try {
@@ -617,11 +658,11 @@ ipcMain.handle("fs:selectFolder", async () => {
     title: "Select Folder",
     properties: ["openDirectory"],
   })
-  
+
   if (result.canceled || !result.filePaths.length) {
     return { ok: false, path: null }
   }
-  
+
   return { ok: true, path: result.filePaths[0] }
 })
 
@@ -630,6 +671,29 @@ ipcMain.handle("fs:getMediaInfo", async (_e: IpcMainInvokeEvent, filePath: strin
     const ext = path.extname(filePath).replace(/^\./, "").toLowerCase()
     const mediaInfo = await getMediaInfo(filePath, ext)
     return { ok: true, data: mediaInfo }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:createFolder", async (_e: IpcMainInvokeEvent, folderPath: string) => {
+  try {
+    await fsp.mkdir(folderPath, { recursive: true })
+    return { ok: true }
+  } catch (error: any) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+
+ipcMain.handle("fs:deleteItem", async (_e: IpcMainInvokeEvent, itemPath: string) => {
+  try {
+    const stats = await fsp.stat(itemPath)
+    if (stats.isDirectory()) {
+      await fsp.rm(itemPath, { recursive: true, force: true })
+    } else {
+      await fsp.unlink(itemPath)
+    }
+    return { ok: true }
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }
   }
@@ -651,7 +715,7 @@ ipcMain.handle("fs:getMediaInfoBatch", async (_e: IpcMainInvokeEvent, filePaths:
         return { path: filePath, mediaInfo: undefined }
       }
     })
-    
+
     return { ok: true, data: results }
   } catch (error: any) {
     return { ok: false, error: error?.message || String(error) }

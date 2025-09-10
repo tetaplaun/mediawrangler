@@ -17,13 +17,13 @@ function formatBytes(size: number | null) {
 }
 
 function formatDateToDDMMYYYY(date: Date): string {
-  const day = date.getDate().toString().padStart(2, '0')
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, "0")
+  const month = (date.getMonth() + 1).toString().padStart(2, "0")
   const year = date.getFullYear()
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  const seconds = date.getSeconds().toString().padStart(2, '0')
-  
+  const hours = date.getHours().toString().padStart(2, "0")
+  const minutes = date.getMinutes().toString().padStart(2, "0")
+  const seconds = date.getSeconds().toString().padStart(2, "0")
+
   return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`
 }
 
@@ -52,17 +52,25 @@ function formatEncodedDate(dateStr: string | undefined) {
 
 function areDatesDifferent(encodedDateStr: string | undefined, modifiedMs: number | null): boolean {
   if (!encodedDateStr || !modifiedMs) return false
-  
+
   try {
     const encodedDate = new Date(encodedDateStr)
     const modifiedDate = new Date(modifiedMs)
-    
+
     if (isNaN(encodedDate.getTime()) || isNaN(modifiedDate.getTime())) return false
-    
+
     // Compare dates at day level (ignore time within same day)
-    const encodedDay = new Date(encodedDate.getFullYear(), encodedDate.getMonth(), encodedDate.getDate())
-    const modifiedDay = new Date(modifiedDate.getFullYear(), modifiedDate.getMonth(), modifiedDate.getDate())
-    
+    const encodedDay = new Date(
+      encodedDate.getFullYear(),
+      encodedDate.getMonth(),
+      encodedDate.getDate()
+    )
+    const modifiedDay = new Date(
+      modifiedDate.getFullYear(),
+      modifiedDate.getMonth(),
+      modifiedDate.getDate()
+    )
+
     // Return true if dates are different days
     return encodedDay.getTime() !== modifiedDay.getTime()
   } catch {
@@ -75,11 +83,11 @@ function formatDuration(seconds: number | undefined) {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-  
+
   if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
   }
-  return `${minutes}:${secs.toString().padStart(2, '0')}`
+  return `${minutes}:${secs.toString().padStart(2, "0")}`
 }
 
 function formatBitRate(bps: number | undefined) {
@@ -104,6 +112,8 @@ export function DetailsView() {
   const sort = useExplorerStore((state) => state.sort)
   const setSort = useExplorerStore((state) => state.setSort)
   const mediaInfoLoading = useExplorerStore((state) => state.mediaInfoLoading)
+  const selectedEntries = useExplorerStore((state) => state.selectedEntries)
+  const toggleEntrySelection = useExplorerStore((state) => state.toggleEntrySelection)
 
   const openEntry = useCallback(
     async (e: Entry) => {
@@ -128,6 +138,29 @@ export function DetailsView() {
       <table className="w-full table-auto border-collapse text-sm">
         <thead className="sticky top-0 z-10 bg-[#202020]">
           <tr>
+            <th className="w-8 border-b border-[#2b2b2b] px-2 py-1 text-center">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-[#555] bg-[#2a2a2a] text-blue-600 focus:ring-blue-500 focus:ring-2"
+                checked={selectedEntries.length > 0 && selectedEntries.length === entries.length}
+                onChange={(e) => {
+                  // Select/deselect all entries
+                  if (e.target.checked) {
+                    // Select all visible entries
+                    entries.forEach((entry) => {
+                      const isSelected = selectedEntries.some((se) => se.path === entry.path)
+                      if (!isSelected) {
+                        toggleEntrySelection(entry)
+                      }
+                    })
+                  } else {
+                    // Deselect all entries
+                    selectedEntries.forEach((entry) => toggleEntrySelection(entry))
+                  }
+                }}
+                onDoubleClick={(e) => e.stopPropagation()} // Prevent double-click from interfering
+              />
+            </th>
             <th className="min-w-[200px] border-b border-[#2b2b2b] p-0">
               <button
                 onClick={() => toggleSort("name")}
@@ -170,9 +203,7 @@ export function DetailsView() {
             <th className="w-20 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
               Duration
             </th>
-            <th className="w-20 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
-              FPS
-            </th>
+            <th className="w-20 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">FPS</th>
             <th className="w-24 border-b border-[#2b2b2b] px-2 py-1 text-left font-medium">
               Bit Rate
             </th>
@@ -203,27 +234,63 @@ export function DetailsView() {
           {entries.map((e) => {
             const isMedia = !!e.mediaInfo
             const isLoading = mediaInfoLoading[e.path]
-            const icon = e.type === "directory" || e.type === "drive" 
-              ? "📁" 
-              : isMedia && e.mediaInfo?.dimensions
-              ? "🖼️"
-              : isMedia && e.mediaInfo?.duration
-              ? "🎬"
-              : "📄"
-              
+            const icon =
+              e.type === "directory" || e.type === "drive"
+                ? "📁"
+                : isMedia && e.mediaInfo?.dimensions
+                  ? "🖼️"
+                  : isMedia && e.mediaInfo?.duration
+                    ? "🎬"
+                    : "📄"
+
             // Check if this is a media file that could have info
             const mediaExts = [
-              'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv',
-              'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tiff', 'ico', 'heic', 'heif'
+              "mp4",
+              "mov",
+              "mkv",
+              "avi",
+              "webm",
+              "m4v",
+              "mpg",
+              "mpeg",
+              "wmv",
+              "flv",
+              "jpg",
+              "jpeg",
+              "png",
+              "gif",
+              "webp",
+              "bmp",
+              "svg",
+              "tiff",
+              "ico",
+              "heic",
+              "heif",
             ]
-            const couldHaveMediaInfo = e.type === "file" && e.ext && mediaExts.includes(e.ext.toLowerCase())
-            
+            const couldHaveMediaInfo =
+              e.type === "file" && e.ext && mediaExts.includes(e.ext.toLowerCase())
+
+            const isSelected = selectedEntries.some((se) => se.path === e.path)
+
             return (
               <tr
                 key={e.path}
-                className="cursor-default hover:bg-[#2a2a2a]"
+                className={`cursor-default hover:bg-[#2a2a2a] ${isSelected ? "bg-[#2d3a4f]" : ""}`}
                 onDoubleClick={() => openEntry(e)}
               >
+                <td className="border-b border-[#2b2b2b] px-2 py-1 text-center">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[#555] bg-[#2a2a2a] text-blue-600 focus:ring-blue-500 focus:ring-2"
+                    checked={isSelected}
+                    onChange={(event) => {
+                      event.stopPropagation() // Prevent event bubbling to row click
+                      toggleEntrySelection(e)
+                    }}
+                    onClick={(event) => event.stopPropagation()} // Prevent row click when clicking checkbox
+                    onDoubleClick={(event) => event.stopPropagation()} // Prevent double-click from opening file
+                  />
+                </td>
                 <td className="truncate border-b border-[#2b2b2b] px-2 py-1">
                   <span className="mr-2">{icon}</span>
                   <span title={e.name}>{e.name}</span>
@@ -231,29 +298,37 @@ export function DetailsView() {
                 <td className="border-b border-[#2b2b2b] px-2 py-1">{e.type}</td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1">{formatBytes(e.size)}</td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
-                  {isLoading && couldHaveMediaInfo ? "..." : formatDimensions(e.mediaInfo?.dimensions)}
+                  {isLoading && couldHaveMediaInfo
+                    ? "..."
+                    : formatDimensions(e.mediaInfo?.dimensions)}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
                   {isLoading && couldHaveMediaInfo ? "..." : formatDuration(e.mediaInfo?.duration)}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
-                  {isLoading && couldHaveMediaInfo ? "..." : formatFrameRate(e.mediaInfo?.frameRate)}
+                  {isLoading && couldHaveMediaInfo
+                    ? "..."
+                    : formatFrameRate(e.mediaInfo?.frameRate)}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
                   {isLoading && couldHaveMediaInfo ? "..." : formatBitRate(e.mediaInfo?.bitRate)}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
-                  {isLoading && couldHaveMediaInfo ? "..." : (e.mediaInfo?.format || "")}
+                  {isLoading && couldHaveMediaInfo ? "..." : e.mediaInfo?.format || ""}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
-                  {isLoading && couldHaveMediaInfo ? "..." : (e.mediaInfo?.codec || "")}
+                  {isLoading && couldHaveMediaInfo ? "..." : e.mediaInfo?.codec || ""}
                 </td>
                 <td className="border-b border-[#2b2b2b] px-2 py-1 text-gray-400">
-                  {isLoading && couldHaveMediaInfo ? "..." : formatEncodedDate(e.mediaInfo?.encodedDate)}
+                  {isLoading && couldHaveMediaInfo
+                    ? "..."
+                    : formatEncodedDate(e.mediaInfo?.encodedDate)}
                 </td>
-                <td className={`border-b border-[#2b2b2b] px-2 py-1 ${
-                  areDatesDifferent(e.mediaInfo?.encodedDate, e.modifiedMs) ? "text-red-500" : ""
-                }`}>
+                <td
+                  className={`border-b border-[#2b2b2b] px-2 py-1 ${
+                    areDatesDifferent(e.mediaInfo?.encodedDate, e.modifiedMs) ? "text-red-500" : ""
+                  }`}
+                >
                   {formatDate(e.modifiedMs)}
                 </td>
               </tr>
